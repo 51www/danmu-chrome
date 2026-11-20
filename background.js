@@ -110,12 +110,14 @@ async function handleMessage(msg, sender) {
       await chrome.storage.sync.set({ config: msg.config });
       cache.clear();
       await syncContentScripts();
+      await broadcastConfig(msg.config);
       return { ok: true };
     }
     case "RESET_CONFIG": {
       await chrome.storage.sync.set({ config: DEFAULT_CONFIG });
       cache.clear();
       await syncContentScripts().catch(() => {});
+      await broadcastConfig(DEFAULT_CONFIG);
       return { ok: true, config: DEFAULT_CONFIG };
     }
     case "API_SEARCH_ANIME":
@@ -352,6 +354,35 @@ function extractEpisodeNo(text) {
   if (!m) m = s.match(/[SE]0*\d+E0*(\d+)/i);
   if (!m) m = s.match(/#0*(\d+)/);
   return m ? parseInt(m[1], 10) : null;
+}
+
+async function broadcastConfig(config) {
+  let tabs = [];
+  try {
+    tabs = await chrome.tabs.query({});
+  } catch (e) {
+    return;
+  }
+  const messages = [
+    { type: "CONTENT_SET_STYLE", style: config.style || {} },
+    { type: "CONTENT_SET_RULES", rules: config.rules || [] }
+  ];
+  await Promise.all(
+    tabs.map(async (tab) => {
+      let frames = [{ frameId: 0 }];
+      try {
+        const all = await chrome.webNavigation.getAllFrames({ tabId: tab.id });
+        if (all && all.length) frames = all;
+      } catch (e) {}
+      await Promise.all(
+        frames.flatMap((frame) =>
+          messages.map((message) =>
+            chrome.tabs.sendMessage(tab.id, message, { frameId: frame.frameId }).catch(() => {})
+          )
+        )
+      );
+    })
+  );
 }
 
 async function syncContentScripts() {

@@ -1,5 +1,8 @@
 let tabId = null;
 let state = null;
+let popupConfig = null;
+let editingRuleIndex = -1;
+let saveTimer = null;
 
 const $ = (id) => document.getElementById(id);
 
@@ -24,6 +27,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("reloadBtn").addEventListener("click", reloadAuto);
   $("openOptions").addEventListener("click", () => chrome.runtime.openOptionsPage());
   $("addCurrentSite").addEventListener("click", addCurrentSite);
+  bindSettings();
 
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg.type === "DANMU_KEYWORD_MATCHED") {
@@ -38,7 +42,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   });
 
-  await refreshState();
+  await Promise.all([refreshState(), loadConfig()]);
 });
 
 async function refreshState() {
@@ -284,11 +288,19 @@ async function addCurrentSite() {
     return;
   }
 
-  const pattern = `*://${host}/*`;
-  const url =
-    chrome.runtime.getURL("options.html") +
-    `?add=${encodeURIComponent(pattern)}&name=${encodeURIComponent(host)}`;
-  await chrome.tabs.create({ url });
+  switchTab("settings");
+  openRuleEditor(-1);
+  $("ruleNameField").value = host;
+  $("rulePatternsField").value = `*://${host}/*`;
+  $("ruleSelectorsField").value = [
+    "h1",
+    "h2",
+    "[class*='title']",
+    "[class*='name']",
+    "meta[property='og:title']",
+    "meta[name='title']"
+  ].join("\n");
+  setConfigStatus("已带入当前网站规则，确认后点「保存规则」。", "ok");
 }
 
 function renderGroup(title, items, getText, onClick) {
@@ -315,4 +327,361 @@ function setMessage(text, type = "") {
   const el = $("message");
   el.textContent = text || "";
   el.className = type;
+}
+
+function bindSettings() {
+  $("tabDanmu").addEventListener("click", () => switchTab("danmu"));
+  $("tabSettings").addEventListener("click", () => switchTab("settings"));
+
+  for (const id of ["setCacheTTL", "setFontSize", "setSpeed", "setMaxLines"]) {
+    $(id).addEventListener("input", () => {
+      updatePreview();
+      scheduleSave();
+    });
+  }
+  $("setOpacity").addEventListener("input", () => {
+    $("opacityValue").textContent = $("setOpacity").value;
+    updatePreview();
+    scheduleSave();
+  });
+  $("setColor").addEventListener("input", () => {
+    $("setColorText").value = $("setColor").value;
+    updatePreview();
+    scheduleSave();
+  });
+  $("setColorText").addEventListener("input", updatePreview);
+  $("setColorText").addEventListener("change", commitNow);
+  $("setApiBase").addEventListener("change", commitNow);
+
+  $("addRuleInline").addEventListener("click", () => openRuleEditor(-1));
+  $("cancelRule").addEventListener("click", closeRuleEditor);
+  $("saveRuleInline").addEventListener("click", saveRuleInline);
+  $("resetConfig").addEventListener("click", resetConfig);
+}
+
+function switchTab(name) {
+  const settings = name === "settings";
+  $("tabDanmu").setAttribute("aria-selected", String(!settings));
+  $("tabSettings").setAttribute("aria-selected", String(settings));
+  $("panelDanmu").hidden = settings;
+  $("panelSettings").hidden = !settings;
+  if (settings) {
+    renderRuleList();
+    updatePreview();
+  }
+}
+
+async function loadConfig() {
+  try {
+    const res = await chrome.runtime.sendMessage({ type: "GET_CONFIG" });
+    if (!res || !res.ok) throw new Error(res?.error || "读取配置失败");
+    popupConfig = res.config;
+    if (!Array.isArray(popupConfig.rules)) popupConfig.rules = [];
+    fillConfigFields();
+    renderRuleList();
+  } catch (e) {
+    setConfigStatus(e.message || String(e), "err");
+  }
+}
+
+function fillConfigFields() {
+  const c = popupConfig || {};
+  const s = c.style || {};
+  $("setApiBase").value = c.apiBase || "";
+  $("setCacheTTL").value = c.cacheTTL ?? 300000;
+  $("setFontSize").value = s.fontSize ?? 25;
+  const color = normalizeColor(s.color) || "#ffffff";
+  $("setColor").value = color;
+  $("setColorText").value = s.color || "#ffffff";
+  $("setOpacity").value = s.opacity ?? 0.9;
+  $("opacityValue").textContent = String(s.opacity ?? 0.9);
+  $("setSpeed").value = s.speed ?? 8;
+  $("setMaxLines").value = s.maxLines ?? 8;
+  updatePreview();
+}
+
+function updatePreview() {
+  const track = $("previewTrack");
+  track.style.setProperty("--pv-size", `${clamp(Number($("setFontSize").value), 12, 60)}px`);
+  track.style.setProperty("--pv-color", normalizeColor($("setColorText").value.trim()) || "#ffffff");
+  track.style.setProperty("--pv-opacity", String(clamp(Number($("setOpacity").value), 0.1, 1)));
+  track.style.setProperty("--pv-speed", `${clamp(Number($("setSpeed").value), 3, 30)}s`);
+}
+
+function clamp(value, min, max) {
+  return Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : min;
+}
+
+function normalizeColor(value) {
+  const s = String(value || "").trim().toLowerCase();
+  if (/^#[0-9a-f]{6}$/.test(s)) return s;
+  if (/^#[0-9a-f]{3}$/.test(s)) return `#${s[1]}${s[1]}${s[2]}${s[2]}${s[3]}${s[3]}`;
+  return null;
+}
+
+function collectConfig() {
+  const c = popupConfig || {};
+  const s = c.style || {};
+  return {
+    ...c,
+    apiBase: $("setApiBase").value.trim().replace(/\/+$/, ""),
+    cacheTTL: clamp(Number($("setCacheTTL").value), 0, 86400000),
+    rules: (c.rules || []).map((r) => ({ ...r })),
+    style: {
+      ...s,
+      fontSize: clamp(Number($("setFontSize").value), 12, 60),
+      color: normalizeColor($("setColorText").value.trim()) || "#ffffff",
+      opacity: clamp(Number($("setOpacity").value), 0.1, 1),
+      speed: clamp(Number($("setSpeed").value), 3, 30),
+      maxLines: clamp(Number($("setMaxLines").value), 1, 30)
+    }
+  };
+}
+
+function validateConfig(cfg) {
+  if (!cfg.apiBase || !/^https?:\/\//.test(cfg.apiBase)) {
+    throw new Error("请填写有效的 API 地址（http 或 https）");
+  }
+  const ids = new Set();
+  for (const rule of cfg.rules) {
+    if (!rule.name) throw new Error("存在未命名的规则");
+    if (!rule.id || ids.has(rule.id)) throw new Error(`规则 ID 重复或为空：${rule.id || "(空)"}`);
+    ids.add(rule.id);
+    if (!Array.isArray(rule.patterns) || !rule.patterns.length) {
+      throw new Error(`规则「${rule.name}」没有网址模式`);
+    }
+    for (const pattern of rule.patterns) {
+      if (!validPattern(pattern)) throw new Error(`无效的网址模式：${pattern}`);
+    }
+  }
+}
+
+function validPattern(pattern) {
+  return /^(\*|https?):\/\/[^/]+\/.*$/.test(pattern);
+}
+
+function lines(value) {
+  return String(value || "")
+    .split(/\r?\n/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function scheduleSave() {
+  clearTimeout(saveTimer);
+  setConfigStatus("待保存…");
+  saveTimer = setTimeout(() => saveConfig("已保存并即时生效"), 400);
+}
+
+function commitNow(message = "已保存并即时生效") {
+  clearTimeout(saveTimer);
+  return saveConfig(message);
+}
+
+async function saveConfig(message) {
+  return commitConfig(collectConfig(), message);
+}
+
+async function commitConfig(cfg, message) {
+  try {
+    validateConfig(cfg);
+    const origins = collectOrigins(cfg);
+    if (origins.length) {
+      const granted = await chrome.permissions.request({ origins }).catch(() => false);
+      if (!granted) throw new Error("未授予站点权限，规则无法生效");
+    }
+    const res = await chrome.runtime.sendMessage({ type: "SAVE_CONFIG", config: cfg });
+    if (!res || !res.ok) throw new Error(res?.error || "保存失败");
+    popupConfig = cfg;
+    fillConfigFields();
+    setConfigStatus(message || "已保存并即时生效", "ok");
+    return true;
+  } catch (e) {
+    setConfigStatus(e.message || String(e), "err");
+    return false;
+  }
+}
+
+function collectOrigins(cfg) {
+  const origins = new Set();
+  try {
+    origins.add(new URL(cfg.apiBase).origin + "/*");
+  } catch (e) {}
+  for (const rule of cfg.rules || []) {
+    for (const pattern of rule.patterns || []) {
+      const origin = originFromPattern(pattern);
+      if (origin) origins.add(origin);
+    }
+  }
+  return [...origins];
+}
+
+function originFromPattern(pattern) {
+  const m = String(pattern).match(/^(\*|https?):\/\/(\*|\*\.[^/]+|[^/]+)(\/.*)?$/);
+  if (!m) return null;
+  const scheme = m[1] === "*" ? "https" : m[1];
+  const host = m[2];
+  if (host === "*") return `${scheme}://*/*`;
+  if (host.startsWith("*.")) return `${scheme}://${host.slice(2)}/*`;
+  return `${scheme}://${host}/*`;
+}
+
+function renderRuleList() {
+  const box = $("ruleList");
+  box.innerHTML = "";
+  const rules = popupConfig?.rules || [];
+  if (!rules.length) {
+    const empty = document.createElement("div");
+    empty.className = "rule-empty";
+    empty.textContent = "还没有站点规则。点「+ 新增规则」开始。";
+    box.appendChild(empty);
+    return;
+  }
+  rules.forEach((rule, index) => {
+    const card = document.createElement("div");
+    card.className = "rule-card";
+    const head = document.createElement("div");
+    head.className = "rule-head";
+
+    const toggle = document.createElement("input");
+    toggle.type = "checkbox";
+    toggle.checked = rule.enabled !== false;
+    toggle.title = "启用规则";
+    toggle.addEventListener("change", async () => {
+      const next = collectConfig();
+      next.rules[index].enabled = toggle.checked;
+      await commitConfig(next, "规则已更新，已打开页面同步生效");
+    });
+
+    const main = document.createElement("div");
+    main.className = "rule-main";
+    const title = document.createElement("span");
+    title.className = "rule-title";
+    title.textContent = rule.name || "(未命名)";
+    const pattern = document.createElement("span");
+    pattern.className = "rule-pattern";
+    pattern.textContent = (rule.patterns || [])[0] || "—";
+    pattern.title = (rule.patterns || []).join("\n");
+    main.append(title, pattern);
+
+    const edit = document.createElement("button");
+    edit.className = "link";
+    edit.textContent = "编辑";
+    edit.addEventListener("click", () => openRuleEditor(index));
+
+    const del = document.createElement("button");
+    del.className = "link danger";
+    del.textContent = "删除";
+    del.addEventListener("click", async () => {
+      if (!confirm(`删除规则「${rule.name || rule.id}」？`)) return;
+      const next = collectConfig();
+      next.rules.splice(index, 1);
+      if (await commitConfig(next, "规则已删除并即时生效")) {
+        if (editingRuleIndex === index) closeRuleEditor();
+        else if (editingRuleIndex > index) editingRuleIndex -= 1;
+        renderRuleList();
+      }
+    });
+
+    head.append(toggle, main, edit, del);
+    card.appendChild(head);
+    box.appendChild(card);
+  });
+}
+
+function openRuleEditor(index) {
+  if (!popupConfig) return;
+  editingRuleIndex = index;
+  const rule = index >= 0
+    ? popupConfig.rules[index]
+    : { id: "", name: "", patterns: [], titleSelectors: [], enabled: true, autoFill: true, autoLoad: true };
+  $("ruleNameField").value = rule.name || "";
+  $("ruleIdField").value = rule.id || "";
+  $("rulePatternsField").value = (rule.patterns || []).join("\n");
+  $("ruleSelectorsField").value = (rule.titleSelectors || []).join("\n");
+  $("ruleEnabledField").checked = rule.enabled !== false;
+  $("ruleAutoFillField").checked = rule.autoFill !== false;
+  $("ruleAutoLoadField").checked = !!rule.autoLoad;
+  $("ruleEditor").hidden = false;
+  $("ruleNameField").focus();
+  $("ruleEditor").scrollIntoView({ block: "nearest" });
+}
+
+function closeRuleEditor() {
+  $("ruleEditor").hidden = true;
+  editingRuleIndex = -1;
+}
+
+async function saveRuleInline() {
+  const name = $("ruleNameField").value.trim();
+  if (!name) {
+    setConfigStatus("请填写规则名称", "err");
+    return;
+  }
+  const patterns = lines($("rulePatternsField").value);
+  if (!patterns.length) {
+    setConfigStatus("至少填写一条网址模式", "err");
+    return;
+  }
+  for (const pattern of patterns) {
+    if (!validPattern(pattern)) {
+      setConfigStatus(`无效的网址模式：${pattern}`, "err");
+      return;
+    }
+  }
+  let id = $("ruleIdField").value.trim() || slugify(name);
+  const exists = (popupConfig.rules || []).some((r, i) => i !== editingRuleIndex && r.id === id);
+  if (exists) {
+    setConfigStatus(`规则 ID 已存在：${id}`, "err");
+    return;
+  }
+  const rule = {
+    id,
+    name,
+    patterns,
+    titleSelectors: lines($("ruleSelectorsField").value),
+    enabled: $("ruleEnabledField").checked,
+    autoFill: $("ruleAutoFillField").checked,
+    autoLoad: $("ruleAutoLoadField").checked
+  };
+  const next = collectConfig();
+  if (editingRuleIndex >= 0) next.rules[editingRuleIndex] = rule;
+  else next.rules.push(rule);
+  if (await commitConfig(next, "规则已保存并即时生效")) {
+    const wasEditing = editingRuleIndex >= 0;
+    closeRuleEditor();
+    renderRuleList();
+    if (wasEditing) setConfigStatus("规则已更新并即时生效", "ok");
+  }
+}
+
+function slugify(name) {
+  const base = String(name)
+    .toLowerCase()
+    .replace(/[^a-z0-9\u4e00-\u9fa5]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return base || `rule-${Date.now().toString(36)}`;
+}
+
+async function resetConfig() {
+  if (!confirm("恢复默认配置？当前自定义设置将被覆盖。")) return;
+  clearTimeout(saveTimer);
+  try {
+    const res = await chrome.runtime.sendMessage({ type: "RESET_CONFIG" });
+    if (!res || !res.ok) throw new Error(res?.error || "恢复失败");
+    popupConfig = res.config;
+    if (!Array.isArray(popupConfig.rules)) popupConfig.rules = [];
+    closeRuleEditor();
+    fillConfigFields();
+    renderRuleList();
+    setConfigStatus("已恢复默认并即时生效", "ok");
+  } catch (e) {
+    setConfigStatus(e.message || String(e), "err");
+  }
+}
+
+function setConfigStatus(text, type = "") {
+  const el = $("configStatus");
+  el.textContent = text || "";
+  el.className = type || "";
 }

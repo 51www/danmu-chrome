@@ -56,25 +56,7 @@
     const res = await chrome.runtime.sendMessage({ type: "GET_CONFIG" });
     if (!res || !res.ok) return;
     config = res.config;
-    rule = findRule(location.href, config.rules);
-    if (!rule) {
-      rule = {
-        id: "manual",
-        name: "手动模式",
-        patterns: [],
-        enabled: true,
-        autoFill: false,
-        autoLoad: false,
-        titleSelectors: [
-          "h1",
-          "h2",
-          "[class*='title']",
-          "[class*='name']",
-          "meta[property='og:title']",
-          "meta[name='title']"
-        ]
-      };
-    }
+    rule = findRule(location.href, config.rules) || manualRule();
 
     injectStyle();
     watchVideo();
@@ -129,11 +111,34 @@
         applyStyle();
         relayoutActive();
         sendResponse({ ok: true });
+      } else if (msg.type === "CONTENT_SET_RULES") {
+        config.rules = Array.isArray(msg.rules) ? msg.rules : [];
+        rule = findRule(location.href, config.rules) || manualRule();
+        sendResponse({ ok: true, rule: rule.name });
       } else {
         sendResponse({ ok: false, error: "未知内容脚本消息" });
       }
       return true;
     });
+  }
+
+  function manualRule() {
+    return {
+      id: "manual",
+      name: "手动模式",
+      patterns: [],
+      enabled: true,
+      autoFill: false,
+      autoLoad: false,
+      titleSelectors: [
+        "h1",
+        "h2",
+        "[class*='title']",
+        "[class*='name']",
+        "meta[property='og:title']",
+        "meta[name='title']"
+      ]
+    };
   }
 
   function findRule(url, rules = []) {

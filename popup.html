@@ -14,10 +14,14 @@
         --accent: #1f5f53;
         --accent-soft: #e6f0ed;
         --danger: #9a4b2f;
+        --stage: #151b1c;
+        --stage-line: #36403f;
+        --stage-text: #9fb3ae;
         --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", sans-serif;
         --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
       }
       * { box-sizing: border-box; }
+      [hidden] { display: none !important; }
       body {
         margin: 0;
         width: 380px;
@@ -31,23 +35,38 @@
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 11px 14px;
+        gap: 10px;
+        padding: 9px 14px;
         background: var(--panel);
         border-bottom: 2px solid var(--ink);
       }
+      .brand { display: flex; align-items: center; gap: 8px; }
+      .brand-mark {
+        display: grid;
+        place-items: center;
+        width: 22px;
+        height: 22px;
+        background: var(--accent);
+        color: #fff;
+        font-size: 12px;
+        font-weight: 600;
+      }
       header h1 { margin: 0; font-size: 13px; font-weight: 650; }
-      .icon-btn {
+      .tabs { display: flex; gap: 2px; }
+      .tab {
         border: 0;
+        border-bottom: 2px solid transparent;
+        border-radius: 0;
         background: none;
         color: var(--muted);
-        padding: 2px 0;
+        padding: 4px 9px;
         font: 11px var(--mono);
         letter-spacing: 0.04em;
-        cursor: pointer;
       }
-      .icon-btn:hover { color: var(--accent); }
+      .tab[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
 
-      main { padding: 14px; }
+      #panelDanmu { padding: 14px; }
+      #panelSettings { max-height: 520px; overflow-y: auto; padding: 12px 14px 16px; }
 
       .card {
         background: var(--panel);
@@ -91,9 +110,10 @@
         margin-bottom: 6px;
       }
       .search { display: flex; gap: 6px; }
-      input {
+      input, textarea {
         flex: 1;
         min-width: 0;
+        width: 100%;
         padding: 7px 9px;
         border: 1px solid var(--line);
         border-radius: 2px;
@@ -102,7 +122,8 @@
         font: 13px var(--sans);
         outline: none;
       }
-      input:focus { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+      textarea { font: 11px/1.5 var(--mono); resize: vertical; min-height: 48px; }
+      input:focus, textarea:focus { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
 
       button {
         border: 1px solid var(--line);
@@ -119,6 +140,9 @@
       button.secondary { background: #fff; color: var(--ink); }
       button.danger { background: #fff; color: var(--danger); border-color: var(--danger); }
       button.danger:hover { background: var(--paper); }
+      button.link { border: 0; padding: 0; background: none; color: var(--accent); font-size: 11px; }
+      button.link:hover { text-decoration: underline; }
+      button.link.danger { color: var(--danger); }
       .actions { display: flex; gap: 6px; margin-top: 8px; }
       .actions button { flex: 1; }
 
@@ -163,14 +187,112 @@
         border-top: 1px solid var(--line);
         line-height: 1.6;
       }
+
+      /* 设置视图：实时投影预览是唯一的“签名”元素，其余保持安静。 */
+      .preview-stage {
+        background: var(--stage);
+        border: 1px solid var(--ink);
+        padding: 8px 10px 10px;
+        margin-bottom: 16px;
+      }
+      .preview-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+        font: 10px var(--mono);
+        letter-spacing: 0.06em;
+        color: var(--stage-text);
+        margin-bottom: 7px;
+      }
+      .preview-track {
+        position: relative;
+        height: 64px;
+        overflow: hidden;
+        border: 1px solid var(--stage-line);
+        background: linear-gradient(180deg, #1e2728, #121819);
+      }
+      .preview-danmu {
+        position: absolute;
+        left: 100%;
+        white-space: nowrap;
+        line-height: 1.1;
+        font-size: var(--pv-size, 25px);
+        color: var(--pv-color, #ffffff);
+        opacity: var(--pv-opacity, 0.9);
+        text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85);
+        animation: pv-scroll var(--pv-speed, 8s) linear infinite;
+      }
+      .preview-danmu--a { top: 5px; }
+      .preview-danmu--b { top: 35px; animation-delay: -4s; }
+      @keyframes pv-scroll {
+        from { transform: translateX(0); }
+        to { transform: translateX(calc(-100% - 390px)); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .preview-danmu { animation: none; left: 8px; }
+      }
+
+      .settings-section { margin-bottom: 16px; }
+      .section-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        padding-bottom: 5px;
+        margin-bottom: 9px;
+        border-bottom: 1px solid var(--ink);
+      }
+      .section-head h2 {
+        margin: 0;
+        font: 10px var(--mono);
+        letter-spacing: 0.1em;
+        color: var(--ink);
+        text-transform: uppercase;
+      }
+      .section-head .hint { font: 10px var(--mono); color: var(--muted); }
+      .field { margin-bottom: 9px; }
+      .field:last-child { margin-bottom: 0; }
+      .field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+      .field-grid .field { margin-bottom: 0; }
+      .field-grid .field-wide { grid-column: 1 / -1; }
+      .color-row, .range-row { display: flex; align-items: center; gap: 7px; }
+      input[type="color"] { flex: 0 0 34px; width: 34px; height: 33px; padding: 2px; }
+      .range-row input[type="range"] { flex: 1; padding: 0; accent-color: var(--accent); }
+      .range-value { flex: 0 0 32px; text-align: right; font: 11px var(--mono); color: var(--muted); }
+
+      .rule-card { border: 1px solid var(--line); background: var(--panel); margin-bottom: 6px; }
+      .rule-head { display: flex; align-items: flex-start; gap: 8px; padding: 7px 9px; }
+      .rule-main { flex: 1; min-width: 0; }
+      .rule-title { display: block; font-size: 12px; font-weight: 600; color: var(--ink); text-transform: none; letter-spacing: 0; margin-bottom: 1px; }
+      .rule-pattern { display: block; font: 10px var(--mono); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .rule-head input[type="checkbox"] { flex: 0 0 14px; width: 14px; height: 14px; margin: 2px 0 0; accent-color: var(--accent); }
+      .rule-form { border-top: 1px dashed var(--line); padding: 9px; display: grid; gap: 9px; }
+      .rule-form .field { margin: 0; }
+      .checks { display: flex; flex-wrap: wrap; gap: 12px; }
+      .check { display: inline-flex; align-items: center; gap: 5px; font: 11px var(--sans); color: var(--ink); text-transform: none; letter-spacing: 0; margin: 0; }
+      .check input { flex: 0 0 14px; width: 14px; height: 14px; accent-color: var(--accent); }
+      .rule-form-actions { display: flex; justify-content: flex-end; gap: 6px; }
+      .rule-empty { padding: 12px; text-align: center; font-size: 11px; color: var(--muted); border: 1px dashed var(--line); }
+
+      .settings-foot { display: flex; align-items: center; gap: 10px; padding-top: 9px; border-top: 1px solid var(--line); }
+      #configStatus { flex: 1; font: 10px/1.5 var(--mono); color: var(--muted); }
+      #configStatus.ok { color: var(--accent); }
+      #configStatus.err { color: var(--danger); }
     </style>
   </head>
   <body>
     <header>
-      <h1>弹幕叠加</h1>
-      <button class="icon-btn" id="openOptions">配置</button>
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">弹</span>
+        <h1>弹幕叠加</h1>
+      </div>
+      <div class="tabs" role="tablist" aria-label="弹幕叠加功能">
+        <button class="tab" id="tabDanmu" role="tab" aria-selected="true" aria-controls="panelDanmu">弹幕</button>
+        <button class="tab" id="tabSettings" role="tab" aria-selected="false" aria-controls="panelSettings">设置</button>
+      </div>
     </header>
-    <main>
+
+    <section id="panelDanmu" role="tabpanel" aria-labelledby="tabDanmu">
       <div class="card">
         <div class="row"><span class="label">清单规则</span><span class="value" id="ruleName">-</span></div>
         <div class="row"><span class="label">视频标题</span><span class="value" id="title">-</span></div>
@@ -198,7 +320,107 @@
       <div id="results"></div>
       <div id="message"></div>
       <div class="tip">点「自动匹配」会按当前站点清单配置的标题选择器列出候选关键词并填入上方输入框（可下拉选择），不会自动装载弹幕；确认关键字后点「搜索」，再选作品与剧集加载弹幕。</div>
-    </main>
+    </section>
+
+    <section id="panelSettings" role="tabpanel" aria-labelledby="tabSettings" hidden>
+      <div class="preview-stage" aria-label="弹幕样式实时预览">
+        <div class="preview-head"><span>实时预览</span><span>修改下方选项即时更新</span></div>
+        <div class="preview-track" id="previewTrack">
+          <span class="preview-danmu preview-danmu--a">实时预览 · 第 12 集</span>
+          <span class="preview-danmu preview-danmu--b">字号 / 颜色 / 速度即时更新</span>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <div class="section-head"><h2>弹幕服务</h2><span class="hint">API / 缓存</span></div>
+        <div class="field">
+          <label for="setApiBase">API 地址（含鉴权参数）</label>
+          <input id="setApiBase" type="url" placeholder="https://api.example.com?token=..." spellcheck="false" />
+        </div>
+        <div class="field">
+          <label for="setCacheTTL">缓存时长（毫秒）</label>
+          <input id="setCacheTTL" type="number" min="0" step="1000" />
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <div class="section-head"><h2>弹幕外观</h2><span class="hint">即时生效</span></div>
+        <div class="field-grid">
+          <div class="field">
+            <label for="setFontSize">字号</label>
+            <input id="setFontSize" type="number" min="12" max="60" />
+          </div>
+          <div class="field">
+            <label for="setColorText">颜色</label>
+            <div class="color-row">
+              <input id="setColor" type="color" aria-label="选择弹幕颜色" />
+              <input id="setColorText" type="text" spellcheck="false" aria-label="弹幕颜色值" />
+            </div>
+          </div>
+          <div class="field">
+            <label for="setSpeed">滚动时长（秒）</label>
+            <input id="setSpeed" type="number" min="3" max="30" />
+          </div>
+          <div class="field">
+            <label for="setMaxLines">最大行数</label>
+            <input id="setMaxLines" type="number" min="1" max="30" />
+          </div>
+          <div class="field field-wide">
+            <label for="setOpacity">透明度</label>
+            <div class="range-row">
+              <input id="setOpacity" type="range" min="0.1" max="1" step="0.05" />
+              <span class="range-value" id="opacityValue">0.9</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <div class="section-head">
+          <h2>站点规则</h2>
+          <button class="link" id="addRuleInline">+ 新增规则</button>
+        </div>
+        <div id="ruleList"></div>
+        <div id="ruleEditor" hidden>
+          <div class="rule-form">
+            <div class="field-grid">
+              <div class="field">
+                <label for="ruleNameField">名称</label>
+                <input id="ruleNameField" type="text" />
+              </div>
+              <div class="field">
+                <label for="ruleIdField">ID（留空自动生成）</label>
+                <input id="ruleIdField" type="text" spellcheck="false" />
+              </div>
+            </div>
+            <div class="field">
+              <label for="rulePatternsField">网址模式（每行一条）</label>
+              <textarea id="rulePatternsField" spellcheck="false"></textarea>
+            </div>
+            <div class="field">
+              <label for="ruleSelectorsField">标题选择器（每行一条，按优先级）</label>
+              <textarea id="ruleSelectorsField" spellcheck="false"></textarea>
+            </div>
+            <div class="checks">
+              <span class="check"><input id="ruleEnabledField" type="checkbox" /> 启用</span>
+              <span class="check"><input id="ruleAutoFillField" type="checkbox" /> 自动填关键字</span>
+              <span class="check"><input id="ruleAutoLoadField" type="checkbox" /> 自动装填</span>
+            </div>
+            <div class="rule-form-actions">
+              <button id="cancelRule">取消</button>
+              <button id="saveRuleInline" class="primary">保存规则</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-foot">
+        <button class="link danger" id="resetConfig">恢复默认</button>
+        <button class="link" id="openOptions">完整配置页</button>
+        <span id="configStatus" role="status" aria-live="polite"></span>
+      </div>
+    </section>
+
     <script src="popup.js"></script>
   </body>
 </html>
