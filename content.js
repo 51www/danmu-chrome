@@ -34,15 +34,21 @@
   let emitted = 0;
   let lastTime = 0;
   let autoTried = false;
-  let laneCursor = 0;
   let observer = null;
   let styleInjected = false;
   let videoReady = false;
   let loopStarted = false;
   let bindingsInstalled = false;
-  let dmPaused = false;
-  const dmTimers = new Map();
   let lastFullscreenEl = null;
+
+  const active = [];
+  let laneCursor = 0;
+  let topLaneCursor = 0;
+  let bottomLaneCursor = 0;
+  let overlayHomeParent = null;
+  let lastVideoRect = null;
+  let rectObserver = null;
+  let settleTimer = 0;
 
   init();
 
@@ -121,6 +127,7 @@
       } else if (msg.type === "CONTENT_SET_STYLE") {
         config.style = { ...config.style, ...msg.style };
         applyStyle();
+        relayoutActive();
         sendResponse({ ok: true });
       } else {
         sendResponse({ ok: false, error: "未知内容脚本消息" });
@@ -471,7 +478,7 @@
     if (bindingsInstalled) return;
     bindingsInstalled = true;
     window.addEventListener("resize", () => {
-      updateOverlayRect();
+      updateOverlayRect(true);
       updateMatchBtnRect();
       updateMatchCardRect();
     });
@@ -864,12 +871,10 @@
   function onVideoReady() {
     if (videoReady) clearDanmu();
     videoReady = true;
+    if (!overlayHomeParent) overlayHomeParent = document.body || document.documentElement;
     mountOverlay();
+    setupRectObserver();
 
-    video.addEventListener("play", () => setPaused(false));
-    video.addEventListener("playing", () => setPaused(false));
-    video.addEventListener("pause", () => setPaused(true));
-    video.addEventListener("waiting", () => setPaused(true));
     video.addEventListener("seeked", resetDanmu);
     video.addEventListener("emptied", clearDanmu);
 
@@ -878,6 +883,16 @@
       loopStarted = true;
       loop();
     }
+  }
+
+  function setupRectObserver() {
+    if (rectObserver) {
+      try { rectObserver.disconnect(); } catch (e) {}
+      rectObserver = null;
+    }
+    if (typeof ResizeObserver === "undefined" || !video) return;
+    rectObserver = new ResizeObserver(() => updateOverlayRect(true));
+    rectObserver.observe(video);
   }
 
   async function tryAutoLoad(retry = 0, force = false) {
@@ -923,31 +938,13 @@
       }
       #${OVERLAY_ID} .dm {
         position: absolute;
+        left: 0;
+        top: 0;
         white-space: nowrap;
         will-change: transform;
         text-shadow: 1px 1px 2px #000, -1px -1px 2px #000, 0 0 3px #000;
         line-height: 1.3;
-      }
-      #${OVERLAY_ID} .dm.roll {
-        left: 100%;
-        animation-name: dmroll;
-        animation-timing-function: linear;
-        animation-fill-mode: forwards;
-      }
-      #${OVERLAY_ID} .dm.top {
-        left: 50%;
-        top: 0;
-        transform: translateX(-50%);
-      }
-      #${OVERLAY_ID} .dm.bottom {
-        left: 50%;
-        bottom: 0;
-        transform: translateX(-50%);
-      }
-      #${OVERLAY_ID}.paused .dm { animation-play-state: paused !important; }
-      @keyframes dmroll {
-        from { transform: translateX(0); }
-        to { transform: translateX(calc(-1 * var(--dm-distance))); }
+        transform: translate3d(-99999px, 0, 0);
       }
       #${MATCH_BTN_ID}:hover { border-left-color: #9df0d6; color: #9df0d6; }
       #${MATCH_CARD_ID} input:focus { border-color: #6ed9b8 !important; }
@@ -978,38 +975,56 @@
     document.head.appendChild(style);
   }
 
-  function isReplacedElement(el) {
-    return /^(VIDEO|AUDIO|IMG|CANVAS|INPUT|TEXTAREA|SELECT|IFRAME|EMBED|OBJECT)$/.test(el.tagName);
+  function canHoldOverlay(el) {
+    return (
+      el &&
+      !/^(VIDEO|AUDIO|IMG|CANVAS|INPUT|TEXTAREA|SELECT|IFRAME|EMBED|OBJECT)$/.test(el.nodeName)
+    );
+  }
+
+  function refreshPopover() {
+    if (!overlay) return;
+    if (!overlay.hasAttribute("popover")) overlay.setAttribute("popover", "manual");
+    try {
+      if (overlay.matches(":popover-open")) overlay.hidePopover();
+    } catch (e) {}
+    try {
+      if (!overlay.matches(":popover-open")) overlay.showPopover();
+    } catch (e) {}
   }
 
   function mountOverlay() {
     if (!overlay) {
       overlay = document.createElement("div");
       overlay.id = OVERLAY_ID;
+      overlayHomeParent = overlayHomeParent || document.body || document.documentElement;
       applyStyle();
     }
-    const fs = document.fullscreenElement;
-    lastFullscreenEl = fs;
-    if (fs && isReplacedElement(fs)) {
-      // 全屏元素本身无法承载可见子节点（如直接对 video 全屏），
-      // 改用 popover 把弹幕层提升到 top layer 覆盖在视频之上。
-      if (!overlay.hasAttribute("popover")) overlay.setAttribute("popover", "manual");
-      try {
-        if (!overlay.matches(":popover-open")) overlay.showPopover();
-      } catch (e) {}
-      if (overlay.parentElement !== document.documentElement) {
-        document.documentElement.appendChild(overlay);
-      }
-    } else {
-      try {
-        if (overlay.matches(":popover-open")) overlay.hidePopover();
-      } catch (e) {}
-      if (overlay.hasAttribute("popover")) overlay.removeAttribute("popover");
-      const parent = fs || document.documentElement;
-      if (overlay.parentElement !== parent) parent.appendChild(overlay);
+    if (!overlayHomeParent || !overlayHomeParent.isConnected) {
+      overlayHomeParent = document.body || document.documentElement;
     }
-    updateOverlayRect();
-    requestAnimationFrame(() => updateOverlayRect());
+    const fs = document.fullscreenElement || null;
+    lastFullscreenEl = fs;
+
+    // 全屏元素可承载子节点时挂进去，避免 popover 在全屏后变 inert；
+    // 裸 video / iframe 全屏无法承载内容，保持在 top layer 覆盖视频。
+    if (fs && canHoldOverlay(fs)) {
+      if (overlay.parentElement !== fs) fs.appendChild(overlay);
+    } else if (overlay.parentElement !== overlayHomeParent) {
+      overlayHomeParent.appendChild(overlay);
+    }
+    refreshPopover();
+    updateOverlayRect(true);
+    scheduleOverlaySettle();
+  }
+
+  function scheduleOverlaySettle() {
+    clearTimeout(settleTimer);
+    requestAnimationFrame(() => updateOverlayRect(true));
+    settleTimer = setTimeout(() => {
+      updateOverlayRect(true);
+      relayoutActive();
+    }, 120);
   }
 
   function applyStyle() {
@@ -1020,62 +1035,56 @@
     overlay.style.color = s.color || "#ffffff";
   }
 
-  function updateOverlayRect() {
+  function updateOverlayRect(force = false) {
     if (!overlay || !video) return;
     const r = video.getBoundingClientRect();
     if (!r.width || !r.height) return;
+    const prev = lastVideoRect;
+    const moved =
+      !prev ||
+      Math.abs(prev.left - r.left) > 0.5 ||
+      Math.abs(prev.top - r.top) > 0.5 ||
+      Math.abs(prev.width - r.width) > 0.5 ||
+      Math.abs(prev.height - r.height) > 0.5;
+    if (!force && !moved) return;
+    const resized =
+      !prev ||
+      Math.abs(prev.width - r.width) > 1 ||
+      Math.abs(prev.height - r.height) > 1;
+
     overlay.style.left = `${r.left}px`;
     overlay.style.top = `${r.top}px`;
     overlay.style.width = `${r.width}px`;
     overlay.style.height = `${r.height}px`;
 
-    // 弹幕层处在带 transform / filter 的祖先内时，fixed 参照系会整体偏移，
-    // 用实际渲染矩形反推偏差并就地修正，确保始终精确贴合视频容器。
+    // 祖先带 transform / filter 时 fixed 参照系会整体偏移，用实际矩形反推修正。
     const actual = overlay.getBoundingClientRect();
     const dx = r.left - actual.left;
     const dy = r.top - actual.top;
     if (Math.abs(dx) > 0.5) overlay.style.left = `${r.left + dx}px`;
     if (Math.abs(dy) > 0.5) overlay.style.top = `${r.top + dy}px`;
+
+    lastVideoRect = { left: r.left, top: r.top, width: r.width, height: r.height };
+    if (resized) relayoutActive();
   }
 
-  function setPaused(paused) {
-    if (!overlay) return;
-    dmPaused = !!paused;
-    overlay.classList.toggle("paused", dmPaused);
-    for (const [el, state] of dmTimers) {
-      if (dmPaused) {
-        if (state.timer) {
-          clearTimeout(state.timer);
-          state.timer = null;
-          state.remaining = Math.max(0, state.total - (Date.now() - state.startedAt));
-        }
-      } else if (!state.timer) {
-        state.startedAt = Date.now();
-        state.timer = setTimeout(() => {
-          dmTimers.delete(el);
-          el.remove();
-        }, state.remaining);
-      }
+  function getSafeArea() {
+    const w = overlay.clientWidth || (lastVideoRect ? lastVideoRect.width : 0);
+    const h = overlay.clientHeight || (lastVideoRect ? lastVideoRect.height : 0);
+    const s = config && config.style ? config.style : {};
+    const top = Math.max(0, Number(s.marginTop ?? 2));
+    const raw = s.marginBottom;
+    let bottom;
+    if (raw != null && raw !== "") {
+      bottom =
+        typeof raw === "string" && raw.trim().endsWith("%")
+          ? (h * parseFloat(raw)) / 100
+          : Number(raw);
+    } else {
+      bottom = Math.min(80, Math.max(44, Math.round(h * 0.09)));
     }
-  }
-
-  function scheduleRemoval(el, total, remaining = total) {
-    const state = { timer: null, total, startedAt: 0, remaining };
-    dmTimers.set(el, state);
-    if (!dmPaused) {
-      state.startedAt = Date.now();
-      state.timer = setTimeout(() => {
-        dmTimers.delete(el);
-        el.remove();
-      }, remaining);
-    }
-  }
-
-  function clearDanmuTimers() {
-    for (const [, state] of dmTimers) {
-      if (state.timer) clearTimeout(state.timer);
-    }
-    dmTimers.clear();
+    if (!Number.isFinite(bottom) || bottom < 0) bottom = 0;
+    return { w, h, top, bottom, renderH: Math.max(1, h - top - bottom) };
   }
 
   function loadComments(list) {
@@ -1083,26 +1092,34 @@
     comments = (list || [])
       .slice()
       .sort((a, b) => a.time - b.time);
-    emitted = 0;
     lastTime = video ? video.currentTime || 0 : 0;
+    const duration = Math.max(3, Number(config.style.speed) || 8);
+    emitted = lowerBound(comments, lastTime - duration);
+  }
+
+  function clearActive() {
+    for (const d of active) d.el.remove();
+    active.length = 0;
   }
 
   function clearDanmu() {
-    clearDanmuTimers();
+    clearActive();
     comments = [];
     currentEpisode = "";
     emitted = 0;
     laneCursor = 0;
-    if (overlay) overlay.innerHTML = "";
+    topLaneCursor = 0;
+    bottomLaneCursor = 0;
   }
 
   function resetDanmu() {
-    if (!overlay) return;
-    clearDanmuTimers();
-    overlay.innerHTML = "";
+    clearActive();
     laneCursor = 0;
+    topLaneCursor = 0;
+    bottomLaneCursor = 0;
     const t = video ? video.currentTime || 0 : 0;
-    emitted = lowerBound(comments, t);
+    const duration = Math.max(3, Number(config && config.style ? config.style.speed : 0) || 8);
+    emitted = lowerBound(comments, t - duration);
     lastTime = t;
   }
 
@@ -1124,45 +1141,113 @@
     updateMatchBtnRect();
     const fsEl = document.fullscreenElement || null;
     if (fsEl !== lastFullscreenEl) mountOverlay();
-    if (!comments.length) return;
-    if (video.paused || video.ended) return;
+    if (!comments.length || video.ended) return;
 
     const t = video.currentTime || 0;
     if (t < lastTime - 0.5) resetDanmu();
     lastTime = t;
 
+    const duration = Math.max(3, Number(config.style.speed) || 8);
     while (emitted < comments.length && comments[emitted].time <= t) {
-      spawn(comments[emitted]);
+      const c = comments[emitted];
+      // 历史弹幕按原始时间直接跳过，避免一次性生成几千条 DOM 拖死主线程。
+      if (t - c.time < duration) spawn(c, t);
       emitted++;
+    }
+    if (!video.paused) updateActive(t);
+  }
+
+  function updateActive(t) {
+    if (!active.length) return;
+    const area = getSafeArea();
+    for (let i = active.length - 1; i >= 0; i--) {
+      const d = active[i];
+      const p = (t - d.bornTime) / d.duration;
+      if (p >= 1) {
+        d.el.remove();
+        active.splice(i, 1);
+        continue;
+      }
+      positionDanmu(d, Math.max(0, p), area);
     }
   }
 
-  function spawn(comment) {
-    const el = document.createElement("div");
-    const mode = Number(comment.mode) || 1;
-    el.className = `dm ${mode === 4 || mode === "bottom" ? "bottom" : mode === 5 || mode === "top" ? "top" : "roll"}`;
-    el.textContent = comment.text || "";
-    el.style.color = comment.color || config.style.color || "#ffffff";
-    el.style.fontSize = `${comment.fontSize || config.style.fontSize || 25}px`;
-    overlay.appendChild(el);
+  function positionDanmu(d, p, area) {
+    let x;
+    let y;
+    if (d.kind === "roll") {
+      x = area.w - p * (area.w + d.width);
+      y = area.top + d.lane * d.laneHeight;
+    } else if (d.kind === "top") {
+      x = (area.w - d.width) / 2;
+      y = area.top + d.lane * d.laneHeight;
+    } else {
+      x = (area.w - d.width) / 2;
+      y = area.h - area.bottom - (d.lane + 1) * d.laneHeight;
+    }
+    d.el.style.transform = `translate3d(${Math.round(x)}px, ${Math.round(y)}px, 0)`;
+  }
 
-    const duration = Math.max(3, Number(config.style.speed) || 8);
-    el.style.animationDuration = `${duration}s`;
-
-    if (el.classList.contains("roll")) {
-      const h = el.offsetHeight || 30;
-      const laneHeight = h + 6;
+  function relayoutActive() {
+    if (!active.length) return;
+    const area = getSafeArea();
+    const t = video ? video.currentTime || 0 : 0;
+    const maxLines = Number((config && config.style && config.style.maxLines) || 8);
+    for (const d of active) {
+      const laneHeight = d.height + 6;
       const maxLanes = Math.max(
         1,
-        Math.floor((overlay.clientHeight || 720) / laneHeight) || config.style.maxLines || 8
+        Math.min(maxLines, Math.max(1, Math.floor(area.renderH / laneHeight)))
       );
-      const lane = laneCursor % maxLanes;
-      laneCursor++;
-      el.style.top = `${lane * laneHeight}px`;
-      const distance = (overlay.clientWidth || 1280) + el.offsetWidth;
-      el.style.setProperty("--dm-distance", `${distance}px`);
+      d.laneHeight = laneHeight;
+      d.lane = d.lane % maxLanes;
+      positionDanmu(d, Math.max(0, Math.min(1, (t - d.bornTime) / d.duration)), area);
     }
+  }
 
-    scheduleRemoval(el, duration * 1000 + 200);
+  function spawn(comment, now) {
+    if (!overlay || active.length >= 400) return;
+    const el = document.createElement("div");
+    const mode = Number(comment.mode) || 1;
+    const kind =
+      mode === 4 || comment.mode === "bottom"
+        ? "bottom"
+        : mode === 5 || comment.mode === "top"
+          ? "top"
+          : "roll";
+    el.className = `dm ${kind}`;
+    el.textContent = comment.text || "";
+    const style = config.style || {};
+    el.style.color = comment.color || style.color || "#ffffff";
+    const fontSize = Number(comment.fontSize) || Number(style.fontSize) || 25;
+    el.style.fontSize = `${fontSize}px`;
+    overlay.appendChild(el);
+
+    const area = getSafeArea();
+    const width = el.offsetWidth || 0;
+    const height = el.offsetHeight || Math.ceil(fontSize * 1.3);
+    const laneHeight = height + 6;
+    const maxLanes = Math.max(
+      1,
+      Math.min(Number(style.maxLines) || 8, Math.max(1, Math.floor(area.renderH / laneHeight)))
+    );
+    let lane = 0;
+    if (kind === "roll") lane = laneCursor++ % maxLanes;
+    else if (kind === "top") lane = topLaneCursor++ % maxLanes;
+    else lane = bottomLaneCursor++ % maxLanes;
+
+    const born = Number.isFinite(Number(comment.time)) ? Number(comment.time) : now;
+    const d = {
+      el,
+      kind,
+      bornTime: born,
+      duration: Math.max(3, Number(style.speed) || 8),
+      lane,
+      width,
+      height,
+      laneHeight
+    };
+    active.push(d);
+    positionDanmu(d, Math.max(0, Math.min(1, (now - born) / d.duration)), area);
   }
 })();
