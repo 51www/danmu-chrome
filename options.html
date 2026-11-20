@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>弹幕叠加 · 配置</title>
+    <style>
+      :root {
+        --paper: #f7f7f5;
+        --panel: #ffffff;
+        --ink: #1e2226;
+        --muted: #6b7178;
+        --line: #d8dad7;
+        --accent: #1f5f53;
+        --accent-soft: #e6f0ed;
+        --danger: #9a4b2f;
+        --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", sans-serif;
+        --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        padding: 32px 28px 80px;
+        background: var(--paper);
+        color: var(--ink);
+        font: 13px/1.5 var(--sans);
+      }
+      :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+      .wrap { max-width: 1080px; margin: 0 auto; }
+
+      header {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        padding-bottom: 14px;
+        border-bottom: 2px solid var(--ink);
+        margin-bottom: 24px;
+      }
+      h1 { margin: 0; font-size: 18px; font-weight: 650; letter-spacing: -0.01em; }
+      .caption { font: 11px var(--mono); color: var(--muted); letter-spacing: 0.04em; }
+      .caption .dirty { color: var(--danger); }
+
+      section { margin-bottom: 28px; }
+      .section-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 10px;
+      }
+      h2 {
+        margin: 0;
+        font: 11px var(--mono);
+        color: var(--muted);
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+      }
+      .section-head::after {
+        content: "";
+        flex: 1;
+        height: 1px;
+        background: var(--line);
+        order: 1;
+      }
+      .section-head .action { order: 2; }
+
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--line);
+      }
+      .form-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 14px 18px;
+        padding: 16px 18px;
+      }
+      .form-grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+      .field > label {
+        font: 10px var(--mono);
+        color: var(--muted);
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+      input, textarea {
+        width: 100%;
+        border: 1px solid var(--line);
+        border-radius: 2px;
+        background: #fff;
+        color: var(--ink);
+        padding: 7px 9px;
+        font: 13px var(--sans);
+      }
+      textarea { font: 12px/1.55 var(--mono); resize: vertical; min-height: 58px; }
+      input:focus, textarea:focus { border-color: var(--accent); outline: none; box-shadow: inset 0 0 0 1px var(--accent); }
+
+      .checks { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; }
+      .check { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
+      input[type="checkbox"] { width: 14px; height: 14px; accent-color: var(--accent); }
+
+      table { width: 100%; border-collapse: collapse; font-size: 12px; }
+      th {
+        text-align: left;
+        font: 10px var(--mono);
+        color: var(--muted);
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        padding: 9px 10px;
+        border-bottom: 1px solid var(--ink);
+        white-space: nowrap;
+      }
+      td { padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+      tbody tr:last-child td { border-bottom: 0; }
+      tbody tr:hover { background: #fafaf8; }
+      td.name { font-weight: 600; }
+      code, .mono { font-family: var(--mono); font-size: 11px; }
+      .pattern { display: block; color: var(--muted); word-break: break-all; }
+      .yes { font: 11px var(--mono); color: var(--accent); }
+      .no { font: 11px var(--mono); color: var(--muted); }
+      .row-actions { display: flex; gap: 10px; white-space: nowrap; }
+      .empty { padding: 22px 10px; text-align: center; color: var(--muted); font-size: 12px; }
+
+      @keyframes rowIn {
+        from { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+        to { background: transparent; box-shadow: inset 3px 0 0 transparent; }
+      }
+      tr.flash { animation: rowIn 600ms ease-out; }
+
+      button {
+        border: 1px solid var(--line);
+        border-radius: 2px;
+        background: #fff;
+        color: var(--ink);
+        padding: 6px 11px;
+        font: 12px var(--sans);
+        cursor: pointer;
+      }
+      button:hover { border-color: var(--ink); }
+      button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+      button.primary:hover { background: #174a40; }
+      button.link { border: 0; padding: 0; background: none; color: var(--accent); font-size: 12px; }
+      button.link:hover { text-decoration: underline; }
+      button.link.danger { color: var(--danger); }
+
+      footer {
+        position: fixed;
+        left: 0; right: 0; bottom: 0;
+        background: var(--panel);
+        border-top: 1px solid var(--line);
+      }
+      .footer-inner {
+        max-width: 1080px;
+        margin: 0 auto;
+        padding: 12px 28px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      #status { flex: 1; font: 11px var(--mono); color: var(--muted); }
+      #status.error { color: var(--danger); }
+      #status.success { color: var(--accent); }
+
+      dialog {
+        width: min(560px, calc(100vw - 40px));
+        border: 1px solid var(--ink);
+        border-radius: 0;
+        padding: 0;
+        background: var(--panel);
+        color: var(--ink);
+      }
+      dialog::backdrop { background: rgba(30, 34, 38, 0.38); }
+      .dialog-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--ink);
+      }
+      .dialog-head strong { font-size: 13px; }
+      .dialog-body { padding: 16px; display: grid; gap: 14px; }
+      .dialog-foot {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        padding: 12px 16px;
+        border-top: 1px solid var(--line);
+      }
+      .hint { font: 11px/1.6 var(--mono); color: var(--muted); }
+
+      @media (max-width: 720px) {
+        body { padding: 20px 14px 76px; }
+        .form-grid, .form-grid.two { grid-template-columns: 1fr; }
+        .footer-inner { padding: 10px 14px; }
+        table { display: block; overflow-x: auto; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        tr.flash { animation: none; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>弹幕叠加配置</h1>
+        <div class="caption">DANMU-CHROME / CONFIG <span class="dirty" id="dirtyFlag"></span></div>
+      </header>
+
+      <section>
+        <div class="section-head"><h2>弹幕服务</h2></div>
+        <div class="panel form-grid">
+          <div class="field">
+            <label for="apiBase">API 地址（含鉴权参数）</label>
+            <input id="apiBase" type="url" placeholder="https://api.example.com?token=..." spellcheck="false" />
+          </div>
+          <div class="field">
+            <label for="cacheTTL">缓存时长（毫秒）</label>
+            <input id="cacheTTL" type="number" min="0" step="1000" />
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-head">
+          <h2>站点规则</h2>
+          <span class="action"><button id="addRule" class="link">+ 新增规则</button></span>
+        </div>
+        <div class="panel">
+          <table>
+            <thead>
+              <tr>
+                <th style="width:44px">启用</th>
+                <th style="width:130px">名称</th>
+                <th style="width:90px">ID</th>
+                <th>网址模式</th>
+                <th style="width:130px">标题选择器</th>
+                <th style="width:52px">填充</th>
+                <th style="width:52px">装填</th>
+                <th style="width:90px">操作</th>
+              </tr>
+            </thead>
+            <tbody id="ruleRows">
+              <tr><td class="empty">正在加载规则…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-head"><h2>弹幕样式</h2></div>
+        <div class="panel form-grid">
+          <div class="field">
+            <label for="fontSize">字号</label>
+            <input id="fontSize" type="number" min="12" max="60" />
+          </div>
+          <div class="field">
+            <label for="color">颜色</label>
+            <input id="color" type="text" spellcheck="false" />
+          </div>
+          <div class="field">
+            <label for="opacity">透明度</label>
+            <input id="opacity" type="number" min="0.1" max="1" step="0.05" />
+          </div>
+          <div class="field">
+            <label for="speed">滚动时长（秒）</label>
+            <input id="speed" type="number" min="3" max="30" />
+          </div>
+          <div class="field">
+            <label for="maxLines">最大行数</label>
+            <input id="maxLines" type="number" min="1" max="30" />
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <footer>
+      <div class="footer-inner">
+        <button id="save" class="primary">保存更改</button>
+        <button id="reset">恢复默认</button>
+        <span id="status"></span>
+      </div>
+    </footer>
+
+    <dialog id="ruleDialog">
+      <div class="dialog-head">
+        <strong id="dialogTitle">新增规则</strong>
+        <button class="link" id="dialogClose">关闭</button>
+      </div>
+      <div class="dialog-body">
+        <div class="form-grid two" style="padding:0">
+          <div class="field">
+            <label for="ruleName">名称</label>
+            <input id="ruleName" type="text" />
+          </div>
+          <div class="field">
+            <label for="ruleId">ID</label>
+            <input id="ruleId" type="text" class="mono" placeholder="留空自动生成" />
+          </div>
+        </div>
+        <div class="field">
+          <label for="rulePatterns">网址模式（每行一条，如 *://example.com/*）</label>
+          <textarea id="rulePatterns" spellcheck="false"></textarea>
+        </div>
+        <div class="field">
+          <label for="ruleSelectors">标题选择器（每行一条，按优先级）</label>
+          <textarea id="ruleSelectors" spellcheck="false"></textarea>
+        </div>
+        <div class="checks">
+          <label class="check"><input id="ruleEnabled" type="checkbox" /> 启用</label>
+          <label class="check"><input id="ruleAutoFill" type="checkbox" /> 自动填充关键字</label>
+          <label class="check"><input id="ruleAutoLoad" type="checkbox" /> 自动装填弹幕</label>
+        </div>
+        <div class="hint">点击「添加并保存」会直接写入插件。网址模式使用 Chrome match pattern 语法。</div>
+      </div>
+      <div class="dialog-foot">
+        <button id="dialogCancel">取消</button>
+        <button id="dialogSave" class="primary">添加并保存</button>
+      </div>
+    </dialog>
+
+    <script src="options.js"></script>
+  </body>
+</html>

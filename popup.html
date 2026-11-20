@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>弹幕叠加</title>
+    <style>
+      :root {
+        --paper: #f7f7f5;
+        --panel: #ffffff;
+        --ink: #1e2226;
+        --muted: #6b7178;
+        --line: #d8dad7;
+        --accent: #1f5f53;
+        --accent-soft: #e6f0ed;
+        --danger: #9a4b2f;
+        --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", sans-serif;
+        --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        width: 380px;
+        background: var(--paper);
+        color: var(--ink);
+        font: 13px/1.5 var(--sans);
+      }
+      :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 11px 14px;
+        background: var(--panel);
+        border-bottom: 2px solid var(--ink);
+      }
+      header h1 { margin: 0; font-size: 13px; font-weight: 650; }
+      .icon-btn {
+        border: 0;
+        background: none;
+        color: var(--muted);
+        padding: 2px 0;
+        font: 11px var(--mono);
+        letter-spacing: 0.04em;
+        cursor: pointer;
+      }
+      .icon-btn:hover { color: var(--accent); }
+
+      main { padding: 14px; }
+
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        margin-bottom: 14px;
+      }
+      .row {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        font-size: 12px;
+        padding: 6px 10px;
+        border-bottom: 1px solid var(--line);
+      }
+      .row:last-child { border-bottom: 0; }
+      .row .label {
+        color: var(--muted);
+        flex-shrink: 0;
+        font: 10px var(--mono);
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        padding-top: 2px;
+      }
+      .row .value { color: var(--ink); text-align: right; word-break: break-all; }
+      .tag {
+        display: inline-block;
+        padding: 0 5px;
+        border: 1px solid var(--muted);
+        font: 10px var(--mono);
+        color: var(--muted);
+      }
+      .tag.ok { border-color: var(--accent); color: var(--accent); }
+      .tag.no { border-color: var(--danger); color: var(--danger); }
+
+      label {
+        display: block;
+        font: 10px var(--mono);
+        color: var(--muted);
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        margin-bottom: 6px;
+      }
+      .search { display: flex; gap: 6px; }
+      input {
+        flex: 1;
+        min-width: 0;
+        padding: 7px 9px;
+        border: 1px solid var(--line);
+        border-radius: 2px;
+        background: #fff;
+        color: var(--ink);
+        font: 13px var(--sans);
+        outline: none;
+      }
+      input:focus { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+
+      button {
+        border: 1px solid var(--line);
+        border-radius: 2px;
+        background: #fff;
+        color: var(--ink);
+        padding: 7px 11px;
+        font: 12px var(--sans);
+        cursor: pointer;
+      }
+      button:hover { border-color: var(--ink); }
+      button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+      button.primary:hover { background: #174a40; }
+      button.secondary { background: #fff; color: var(--ink); }
+      button.danger { background: #fff; color: var(--danger); border-color: var(--danger); }
+      button.danger:hover { background: var(--paper); }
+      .actions { display: flex; gap: 6px; margin-top: 8px; }
+      .actions button { flex: 1; }
+
+      #results { margin-top: 12px; max-height: 230px; overflow: auto; }
+      .group-title {
+        font: 10px var(--mono);
+        color: var(--muted);
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        border-bottom: 1px solid var(--ink);
+        padding-bottom: 4px;
+        margin: 10px 0 6px;
+      }
+      .result-item {
+        display: block;
+        width: 100%;
+        text-align: left;
+        background: #fff;
+        color: var(--ink);
+        border: 1px solid var(--line);
+        border-radius: 2px;
+        margin-bottom: 4px;
+        padding: 7px 9px;
+        font-size: 12px;
+        line-height: 1.4;
+      }
+      .result-item:hover { background: var(--accent-soft); border-color: var(--accent); }
+
+      #message {
+        font: 11px/1.5 var(--mono);
+        color: var(--muted);
+        min-height: 16px;
+        margin-top: 10px;
+      }
+      #message.error { color: var(--danger); }
+      #message.success { color: var(--accent); }
+      .tip {
+        font-size: 11px;
+        color: var(--muted);
+        margin-top: 10px;
+        padding-top: 8px;
+        border-top: 1px solid var(--line);
+        line-height: 1.6;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>弹幕叠加</h1>
+      <button class="icon-btn" id="openOptions">配置</button>
+    </header>
+    <main>
+      <div class="card">
+        <div class="row"><span class="label">清单规则</span><span class="value" id="ruleName">-</span></div>
+        <div class="row"><span class="label">视频标题</span><span class="value" id="title">-</span></div>
+        <div class="row"><span class="label">当前剧集</span><span class="value" id="episode">-</span></div>
+        <div class="row"><span class="label">装填进度</span><span class="value" id="wizardState">-</span></div>
+        <div class="row"><span class="label">弹幕条数</span><span class="value" id="count">0</span></div>
+      </div>
+
+      <label for="keyword">弹幕搜索关键字</label>
+      <div class="search">
+        <input id="keyword" list="keywordOptions" placeholder="输入影片名称，或点自动匹配后从下拉选择" autocomplete="off" />
+        <datalist id="keywordOptions"></datalist>
+        <button id="searchBtn" class="primary">搜索</button>
+      </div>
+
+      <div class="actions">
+        <button class="primary" id="autoMatchBtn">自动匹配</button>
+        <button class="secondary" id="reloadBtn">重新自动装填</button>
+        <button class="danger" id="clearBtn">清除弹幕</button>
+      </div>
+      <div class="actions">
+        <button class="secondary" id="addCurrentSite">+ 当前网站</button>
+      </div>
+
+      <div id="results"></div>
+      <div id="message"></div>
+      <div class="tip">点「自动匹配」会按当前站点清单配置的标题选择器列出候选关键词并填入上方输入框（可下拉选择），不会自动装载弹幕；确认关键字后点「搜索」，再选作品与剧集加载弹幕。</div>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>

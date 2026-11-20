@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "Danmu Overlay",
+  "version": "0.1.0",
+  "description": "在配置清单匹配的视频站点上叠加 danmu_api 弹幕",
+  "permissions": ["storage", "scripting", "activeTab", "webNavigation"],
+  "host_permissions": ["https://danmu-api-93060.app.workbuddy.host/*"],
+  "optional_host_permissions": ["https://*/*", "http://*/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "icons": {
+    "128": "icon.png"
+  },
+  "action": {
+    "default_icon": "icon.png",
+    "default_popup": "popup.html",
+    "default_title": "弹幕叠加"
+  },
+  "options_page": "options.html"
+}
