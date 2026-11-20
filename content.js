@@ -42,6 +42,7 @@
   let bindingsInstalled = false;
   let dmPaused = false;
   const dmTimers = new Map();
+  let lastFullscreenEl = null;
 
   init();
 
@@ -913,6 +914,13 @@
         overflow: hidden;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif;
       }
+      #${OVERLAY_ID}[popover] {
+        margin: 0;
+        inset: auto;
+        border: 0;
+        padding: 0;
+        background: transparent;
+      }
       #${OVERLAY_ID} .dm {
         position: absolute;
         white-space: nowrap;
@@ -970,15 +978,38 @@
     document.head.appendChild(style);
   }
 
+  function isReplacedElement(el) {
+    return /^(VIDEO|AUDIO|IMG|CANVAS|INPUT|TEXTAREA|SELECT|IFRAME|EMBED|OBJECT)$/.test(el.tagName);
+  }
+
   function mountOverlay() {
     if (!overlay) {
       overlay = document.createElement("div");
       overlay.id = OVERLAY_ID;
       applyStyle();
     }
-    const parent = document.fullscreenElement || document.documentElement;
-    if (overlay.parentElement !== parent) parent.appendChild(overlay);
+    const fs = document.fullscreenElement;
+    lastFullscreenEl = fs;
+    if (fs && isReplacedElement(fs)) {
+      // 全屏元素本身无法承载可见子节点（如直接对 video 全屏），
+      // 改用 popover 把弹幕层提升到 top layer 覆盖在视频之上。
+      if (!overlay.hasAttribute("popover")) overlay.setAttribute("popover", "manual");
+      try {
+        if (!overlay.matches(":popover-open")) overlay.showPopover();
+      } catch (e) {}
+      if (overlay.parentElement !== document.documentElement) {
+        document.documentElement.appendChild(overlay);
+      }
+    } else {
+      try {
+        if (overlay.matches(":popover-open")) overlay.hidePopover();
+      } catch (e) {}
+      if (overlay.hasAttribute("popover")) overlay.removeAttribute("popover");
+      const parent = fs || document.documentElement;
+      if (overlay.parentElement !== parent) parent.appendChild(overlay);
+    }
     updateOverlayRect();
+    requestAnimationFrame(() => updateOverlayRect());
   }
 
   function applyStyle() {
@@ -997,6 +1028,14 @@
     overlay.style.top = `${r.top}px`;
     overlay.style.width = `${r.width}px`;
     overlay.style.height = `${r.height}px`;
+
+    // 弹幕层处在带 transform / filter 的祖先内时，fixed 参照系会整体偏移，
+    // 用实际渲染矩形反推偏差并就地修正，确保始终精确贴合视频容器。
+    const actual = overlay.getBoundingClientRect();
+    const dx = r.left - actual.left;
+    const dy = r.top - actual.top;
+    if (Math.abs(dx) > 0.5) overlay.style.left = `${r.left + dx}px`;
+    if (Math.abs(dy) > 0.5) overlay.style.top = `${r.top + dy}px`;
   }
 
   function setPaused(paused) {
@@ -1081,11 +1120,13 @@
   function loop() {
     requestAnimationFrame(loop);
     if (!video || !overlay) return;
+    updateOverlayRect();
     updateMatchBtnRect();
+    const fsEl = document.fullscreenElement || null;
+    if (fsEl !== lastFullscreenEl) mountOverlay();
     if (!comments.length) return;
     if (video.paused || video.ended) return;
 
-    updateOverlayRect();
     const t = video.currentTime || 0;
     if (t < lastTime - 0.5) resetDanmu();
     lastTime = t;
