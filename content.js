@@ -7,6 +7,7 @@
   const MATCH_BTN_ID = "__danmu_match_btn__";
   const MATCH_CARD_ID = "__danmu_match_card__";
   const TOAST_ID = "__danmu_toast__";
+  const PICKER_ID = "__danmu_picker__";
 
   let config = null;
   let rule = null;
@@ -34,6 +35,23 @@
   let emitted = 0;
   let lastTime = 0;
   let autoTried = false;
+  let autoAttemptKey = "";
+  let autoNoticeShown = false;
+  let retryContext = { keyword: "", episodeHint: null };
+  let picker = {
+    open: false,
+    step: "anime",
+    title: "",
+    keyword: "",
+    animes: [],
+    episodes: [],
+    anime: null,
+    busy: false,
+    error: false,
+    message: "",
+    episodeHint: null
+  };
+  let pickerCard = null;
   let observer = null;
   let styleInjected = false;
   let videoReady = false;
@@ -82,7 +100,11 @@
           url: location.href
         });
       } else if (msg.type === "CONTENT_MATCH_KEYWORD") {
-        sendResponse({ ok: true, candidates: collectCandidates() });
+        sendResponse({
+          ok: true,
+          candidates: collectCandidates(),
+          episodeHint: detectActiveEpisode()
+        });
       } else if (msg.type === "CONTENT_AUTO_MATCH") {
         refreshVideo();
         const candidates = collectCandidates();
@@ -162,7 +184,7 @@
     "[data-title]", "[data-name]", "figcaption"
   ];
   const NOISE =
-    /^(首页|播放|登录|注册|搜索|导航|更多|全部|详情|视频|电影|电视剧|综艺|动漫|选集|剧集|下一集|上一集|正片|预告|花絮|完结|更新至.*集|第\d+集|player\s*version\b.*|video\s*player\b.*|video\s*url\b.*|play\s*url\b.*|player\s*url\b.*|video\s*source\b.*|full\s*screen\b.*|loading\b.*|buffering\b.*|版本.*|v?\d+(\.\d+){1,4})$/i;
+    /^(首页|播放|登录|注册|搜索|导航|更多|全部|详情|视频|电影|电视剧|综艺|动漫|选集|剧集|下一集|上一集|正片|预告|花絮|完结|更新至.*集|第\d+集|player\s*version\b.*|video\s*(volume|time|duration|speed|quality|rate)\s*:?.*|play\s*speed\s*:?.*|video\s*player\b.*|video\s*url\b.*|play\s*url\b.*|player\s*url\b.*|video\s*source\b.*|full\s*screen\b.*|loading\b.*|buffering\b.*|版本.*|v?\d+(\.\d+){1,4})$/i;
 
   function collectCandidates() {
     const found = [];
@@ -209,13 +231,16 @@
     // 第 1 优先级：站点规则里配置的标题选择器，按配置顺序给分，作为核心搜索规则
     scanSelector(document, 300, siteSelectors, 10);
 
-    // 第 2 层：以 video 为起点，逐层向上扫描兄弟节点与祖先（辅助定位播放器附近标题）
+    // 第 2 优先级：语义标题始终优先于播放器周边的控件文案
+    scanSelector(document, 280, ["h1", "h2", "h3"], 6);
+
+    // 第 3 层：以 video 为起点，逐层向上扫描兄弟节点与祖先（辅助定位播放器附近标题）
     if (video) {
       let node = video;
       for (let depth = 0; depth < 6 && node; depth++) {
         const parent = node.parentElement;
         if (!parent) break;
-        const proximity = 150 - depth * 12;
+        const proximity = 110 - depth * 10;
         for (const sibling of parent.children) {
           if (sibling === node || sibling === video) continue;
           if (sibling.contains(video)) continue;
@@ -486,28 +511,40 @@
       updateOverlayRect(true);
       updateMatchBtnRect();
       updateMatchCardRect();
+      updatePickerRect();
     });
     window.addEventListener("scroll", () => {
       updateOverlayRect();
       updateMatchBtnRect();
       updateMatchCardRect();
+      updatePickerRect();
     }, true);
     document.addEventListener("fullscreenchange", () => {
       mountOverlay();
       mountMatchBtn();
-      if (matchCard) {
-        const parent = document.fullscreenElement || document.documentElement;
-        if (matchCard.parentElement !== parent) parent.appendChild(matchCard);
-      }
+      const parent = document.fullscreenElement || document.documentElement;
+      if (matchCard && matchCard.parentElement !== parent) parent.appendChild(matchCard);
+      if (pickerCard && pickerCard.parentElement !== parent) parent.appendChild(pickerCard);
       updateMatchCardRect();
+      updatePickerRect();
     });
     document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && picker.open) {
+        e.stopPropagation();
+        closePicker();
+        return;
+      }
       if (e.key === "Escape" && wizardOpen) {
         e.stopPropagation();
         closeMatchCard(true);
       }
     }, true);
     document.addEventListener("pointerdown", (e) => {
+      if (picker.open) {
+        if (pickerCard && pickerCard.contains(e.target)) return;
+        closePicker();
+        return;
+      }
       if (!wizardOpen) return;
       if (matchCard && matchCard.contains(e.target)) return;
       if (matchBtn && matchBtn.contains(e.target)) return;
@@ -717,6 +754,18 @@
       items.forEach((text, i) => {
         list.appendChild(makeRow(text, i === 0, () => chooseKeyword(text)));
       });
+      if (retryContext.keyword || retryContext.episodeHint != null) {
+        const hint = retryContext.episodeHint;
+        list.appendChild(
+          makeRow(`⚡ 按当前集快速重试${hint != null ? `（第 ${hint} 集）` : ""}`, false, () =>
+            quickRetry(
+              matchCard.querySelector(".dmc-input").value ||
+                wizard.keyword ||
+                retryContext.keyword
+            )
+          )
+        );
+      }
       return;
     }
 
@@ -805,17 +854,351 @@
     if (matchBtn) matchBtn.style.display = "none";
   }
 
-  function showToast(text) {
+  function showToast(text, options = {}) {
     if (!toast) {
       toast = document.createElement("div");
       toast.id = TOAST_ID;
     }
     const parent = document.fullscreenElement || document.documentElement;
     if (toast.parentElement !== parent) parent.appendChild(toast);
+
     toast.textContent = text;
+    let action = toast.querySelector("button");
+    if (options.actionText && typeof options.onAction === "function") {
+      if (!action) {
+        action = document.createElement("button");
+        action.className = "dmc-toast-action";
+        action.addEventListener("click", (e) => {
+          e.stopPropagation();
+          toast.classList.remove("show");
+          options.onAction();
+        });
+        toast.appendChild(action);
+      }
+      action.textContent = ` ${options.actionText}`;
+    } else if (action) {
+      action.remove();
+    }
     toast.classList.add("show");
     clearTimeout(showToast.timer);
-    showToast.timer = setTimeout(() => toast.classList.remove("show"), 2600);
+    showToast.timer = 0;
+    if (!options.persistent) {
+      const duration = options.duration || (options.actionText ? 8000 : 2600);
+      showToast.timer = setTimeout(() => toast.classList.remove("show"), duration);
+    }
+  }
+
+  function hideToast() {
+    if (!toast) return;
+    clearTimeout(showToast.timer);
+    toast.classList.remove("show");
+  }
+
+  function createPickerCard() {
+    if (pickerCard) return pickerCard;
+    pickerCard = document.createElement("div");
+    pickerCard.id = PICKER_ID;
+    pickerCard.innerHTML = `
+      <div class="dmp-head">
+        <span class="dmp-eyebrow">DANMU / SELECT</span>
+        <button class="dmp-close" type="button" aria-label="取消选择">×</button>
+      </div>
+      <div class="dmp-match">
+        <div class="dmp-label">当前视频 · 已匹配标题</div>
+        <div class="dmp-title"></div>
+      </div>
+      <div class="dmp-steps"><span class="dmp-step"></span><span class="dmp-step"></span></div>
+      <div class="dmp-step-labels"><span>01 弹幕作品</span><span>02 目标集数</span></div>
+      <div class="dmp-search">
+        <input type="text" placeholder="输入作品名重新搜索" />
+        <button type="button">搜索</button>
+      </div>
+      <div class="dmp-list"></div>
+      <div class="dmp-foot">
+        <span class="dmp-status"></span>
+        <button class="dmp-back" type="button" hidden>返回</button>
+        <button class="dmp-cancel" type="button">取消</button>
+      </div>
+    `;
+    pickerCard.querySelector(".dmp-close").addEventListener("click", (e) => {
+      e.stopPropagation();
+      closePicker();
+    });
+    pickerCard.querySelector(".dmp-cancel").addEventListener("click", (e) => {
+      e.stopPropagation();
+      closePicker();
+    });
+    pickerCard.querySelector(".dmp-back").addEventListener("click", (e) => {
+      e.stopPropagation();
+      backPicker();
+    });
+    pickerCard.querySelector(".dmp-search button").addEventListener("click", (e) => {
+      e.stopPropagation();
+      pickerSearch(pickerCard.querySelector(".dmp-search input").value);
+    });
+    pickerCard.querySelector(".dmp-search input").addEventListener("keydown", (e) => {
+      e.stopPropagation();
+      if (e.key === "Enter") pickerSearch(e.target.value);
+    });
+    const parent = document.fullscreenElement || document.documentElement;
+    parent.appendChild(pickerCard);
+    return pickerCard;
+  }
+
+  function openPicker(info = {}) {
+    const animes = Array.isArray(info.animes) ? info.animes : [];
+    createPickerCard();
+    picker = {
+      open: true,
+      step: "anime",
+      title: info.title || "当前视频",
+      keyword: info.keyword || info.title || "",
+      animes,
+      episodes: [],
+      anime: null,
+      busy: false,
+      error: !animes.length,
+      message: animes.length
+        ? `找到 ${animes.length} 部作品，选择弹幕来源。`
+        : "没有匹配到弹幕作品，输入作品名搜索或取消。",
+      episodeHint: info.episodeHint ?? null
+    };
+    pickerCard.querySelector(".dmp-search input").value = picker.keyword;
+    renderPicker();
+    updatePickerRect();
+    hideToast();
+  }
+
+  function closePicker() {
+    picker.open = false;
+    picker.busy = false;
+    if (pickerCard) pickerCard.style.display = "none";
+  }
+
+  function setPicker(patch) {
+    picker = { ...picker, ...patch };
+    if (picker.open) renderPicker();
+  }
+
+  function renderPicker() {
+    if (!pickerCard || !picker.open) return;
+    pickerCard.style.display = "block";
+    pickerCard.querySelector(".dmp-title").textContent = picker.title;
+    const steps = pickerCard.querySelectorAll(".dmp-step");
+    steps[0].className = `dmp-step ${picker.step === "anime" ? "active" : "done"}`;
+    steps[1].className = `dmp-step ${picker.step === "episode" ? "active" : ""}`;
+    const labels = pickerCard.querySelectorAll(".dmp-step-labels span");
+    labels[0].className = picker.step === "anime" ? "active" : "";
+    labels[1].className = picker.step === "episode" ? "active" : "";
+    pickerCard.querySelector(".dmp-search").style.display =
+      picker.step === "anime" ? "flex" : "none";
+    pickerCard.querySelector(".dmp-back").hidden = picker.step !== "episode";
+    const status = pickerCard.querySelector(".dmp-status");
+    status.textContent = `${picker.busy ? "◌ " : picker.error ? "! " : "· "}${picker.message}`;
+    status.className = `dmp-status ${picker.busy ? "busy" : picker.error ? "error" : ""}`;
+
+    const list = pickerCard.querySelector(".dmp-list");
+    list.innerHTML = "";
+    if (picker.step === "anime") {
+      if (picker.busy) {
+        list.appendChild(pickerRow("正在搜索作品…", false));
+        return;
+      }
+      if (!picker.animes.length) {
+        const empty = document.createElement("div");
+        empty.className = `dmp-empty${picker.error ? " error" : ""}`;
+        empty.textContent = picker.message || "没有找到弹幕作品，试试换个关键词。";
+        list.appendChild(empty);
+        return;
+      }
+      picker.animes.forEach((anime, i) => {
+        const name = anime.animeTitle || anime.title || anime.name || anime.anime || "未命名作品";
+        const meta = anime.animeId ? `#${anime.animeId}` : "";
+        list.appendChild(pickerRow(name, i === 0, () => pickerChooseAnime(anime), meta));
+      });
+      return;
+    }
+
+    if (picker.busy) {
+      list.appendChild(pickerRow("正在获取剧集…", false));
+      return;
+    }
+    if (!picker.episodes.length) {
+      const empty = document.createElement("div");
+      empty.className = `dmp-empty${picker.error ? " error" : ""}`;
+      empty.textContent = picker.message || "该作品暂无可加载的剧集，请返回换一部作品。";
+      list.appendChild(empty);
+      return;
+    }
+    picker.episodes.forEach((ep, i) => {
+      const label = ep.episodeTitle || ep.title || ep.name || `第 ${i + 1} 集`;
+      const recommended =
+        picker.episodeHint != null && extractEpisodeNo(label) === picker.episodeHint;
+      list.appendChild(
+        pickerRow(label, recommended, () => pickerChooseEpisode(ep), recommended ? "当前" : "")
+      );
+    });
+  }
+
+  function pickerRow(text, highlight, onClick, meta) {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = `dmp-row${highlight ? " recommended" : ""}`;
+    const main = document.createElement("span");
+    main.className = "dmp-main";
+    main.textContent = text;
+    item.appendChild(main);
+    if (meta) {
+      const tag = document.createElement("span");
+      tag.className = "dmp-meta";
+      tag.textContent = meta;
+      item.appendChild(tag);
+    }
+    item.title = text;
+    if (onClick) {
+      item.addEventListener("click", (e) => {
+        e.stopPropagation();
+        onClick();
+      });
+    }
+    return item;
+  }
+
+  function updatePickerRect() {
+    if (!pickerCard) return;
+    const r = video && video.getBoundingClientRect();
+    const width = Math.min(360, window.innerWidth - 24);
+    pickerCard.style.width = `${width}px`;
+    pickerCard.style.left = `${Math.max(
+      12,
+      (r && r.width ? r.right : window.innerWidth) - width - 10
+    )}px`;
+    pickerCard.style.top = `${(r && r.height ? r.top : 0) + 44}px`;
+  }
+
+  async function pickerSearch(keyword) {
+    const kw = cleanTitle(keyword);
+    if (!kw) return;
+    setPicker({
+      keyword: kw,
+      busy: true,
+      error: false,
+      message: `正在搜索《${kw}》…`,
+      animes: [],
+      episodes: []
+    });
+    try {
+      const res = await chrome.runtime.sendMessage({ type: "API_SEARCH_ANIME", keyword: kw });
+      if (!res || !res.ok) throw new Error(res?.error || "作品搜索失败");
+      const animes = res.items || [];
+      if (!animes.length) {
+        setPicker({
+          step: "anime",
+          busy: false,
+          error: true,
+          animes: [],
+          message: `没有找到与「${kw}」匹配的作品，换个关键词试试。`
+        });
+        return;
+      }
+      setPicker({
+        step: "anime",
+        busy: false,
+        error: false,
+        animes,
+        message: `找到 ${animes.length} 部作品，选择弹幕来源。`
+      });
+    } catch (e) {
+      setPicker({ busy: false, error: true, message: `搜索失败：${e.message || e}` });
+    }
+  }
+
+  async function pickerChooseAnime(anime) {
+    const name =
+      anime.animeTitle || anime.title || anime.name || anime.anime || picker.keyword || "";
+    setPicker({
+      step: "episode",
+      anime,
+      episodes: [],
+      busy: true,
+      error: false,
+      message: `正在获取《${name}》的剧集…`
+    });
+    try {
+      const res = await chrome.runtime.sendMessage({
+        type: "API_SEARCH_EPISODES",
+        anime: name,
+        animeId: anime.animeId,
+        animeTitle: name
+      });
+      if (!res || !res.ok) throw new Error(res?.error || "剧集获取失败");
+      const episodes = res.items || [];
+      if (!episodes.length) {
+        setPicker({
+          step: "anime",
+          busy: false,
+          error: true,
+          episodes: [],
+          message: `《${name}》暂无可加载的剧集，换一部作品试试。`
+        });
+        return;
+      }
+      setPicker({
+        step: "episode",
+        busy: false,
+        error: false,
+        episodes,
+        message: `找到 ${episodes.length} 集，选择目标集数。`
+      });
+    } catch (e) {
+      setPicker({
+        step: "anime",
+        busy: false,
+        error: true,
+        message: `剧集获取失败：${e.message || e}`
+      });
+    }
+  }
+
+  async function pickerChooseEpisode(episode) {
+    const label = episode.episodeTitle || episode.title || episode.name || "该集";
+    setPicker({ busy: true, error: false, message: `正在获取《${label}》的弹幕…` });
+    try {
+      const target = {
+        id: episode.episodeId || episode.commentId || episode.cid || episode.id,
+        url: episode.url || episode.videoUrl || episode.playUrl
+      };
+      const res = await chrome.runtime.sendMessage({ type: "API_GET_COMMENTS", ...target });
+      if (!res || !res.ok) throw new Error(res?.error || "弹幕获取失败");
+      const loaded = res.comments || [];
+      if (!loaded.length) {
+        setPicker({
+          busy: false,
+          error: true,
+          message: `《${label}》暂无弹幕，换一集试试。`
+        });
+        return;
+      }
+      const animeName = picker.anime
+        ? picker.anime.animeTitle || picker.anime.title || picker.anime.name || ""
+        : "";
+      applyResolved({ comments: loaded, episode: label, anime: animeName });
+      closePicker();
+      showToast(`已装填 ${loaded.length} 条弹幕 · ${label}`, { duration: 3000 });
+    } catch (e) {
+      setPicker({ busy: false, error: true, message: `弹幕获取失败：${e.message || e}` });
+    }
+  }
+
+  function backPicker() {
+    if (picker.step !== "episode" || picker.busy) return;
+    setPicker({
+      step: "anime",
+      episodes: [],
+      busy: false,
+      error: false,
+      message: "换一部作品，或重新搜索关键词。"
+    });
   }
 
   function findVideo(root = document) {
@@ -888,6 +1271,7 @@
       loopStarted = true;
       loop();
     }
+    tryAutoLoad();
   }
 
   function setupRectObserver() {
@@ -900,24 +1284,216 @@
     rectObserver.observe(video);
   }
 
-  async function tryAutoLoad(retry = 0, force = false) {
-    if (autoTried || (!rule.autoLoad && !force)) return;
-    const title = matchedKeyword || getTitle();
-    if (!title) {
-      if (retry < 6) setTimeout(() => tryAutoLoad(retry + 1, force), 700);
+  function getVideoKey() {
+    const src = video && (video.currentSrc || video.src || "");
+    return `${location.href}::${src}`;
+  }
+
+  function extractEpisodeNo(text, allowBareNumber = false) {
+    const s = String(text || "").trim();
+    let m = s.match(/第\s*0*(\d+)\s*[集话]/);
+    if (!m) m = s.match(/[SE]0*\d+E0*(\d+)/i);
+    if (!m) m = s.match(/EP\s*0*(\d+)/i);
+    if (!m) m = s.match(/#0*(\d+)/);
+    if (!m && allowBareNumber) m = s.match(/^0*(\d{1,3})$/);
+    return m ? parseInt(m[1], 10) : null;
+  }
+
+  function detectActiveEpisode() {
+    const selectors = [
+      "a.active", "a[class*='active' i]", "a.current", "a[class*='current' i]",
+      "a[aria-current]", "a[class*='selected' i]", "a.on", "a[class*='playing' i]",
+      "li.active a", "li.current a", ".active > a", ".current > a", "[aria-current] > a"
+    ];
+    for (const sel of selectors) {
+      let nodes;
+      try {
+        nodes = document.querySelectorAll(sel);
+      } catch (e) {
+        continue;
+      }
+      for (const el of Array.from(nodes).slice(0, 30)) {
+        const text = (el.textContent || "").trim();
+        const no = extractEpisodeNo(text, true);
+        if (no != null) return no;
+        for (const attr of ["title", "data-episode", "data-ep", "data-num", "href"]) {
+          const no2 = extractEpisodeNo(el.getAttribute(attr) || "", true);
+          if (no2 != null) return no2;
+        }
+      }
+    }
+    return null;
+  }
+
+  function findEpisodeHint(titles) {
+    const active = detectActiveEpisode();
+    if (active != null) return active;
+    const sources = [...(titles || []), document.title];
+    try {
+      const nodes = document.querySelectorAll(
+        "[class*='episode' i],[id*='episode' i],[class*='ep-num' i],[id*='ep-num' i],h2,h3,h4,h5"
+      );
+      for (const el of Array.from(nodes).slice(0, 40)) {
+        const text = (el.textContent || "").trim();
+        if (text && text.length <= 40) sources.push(text);
+      }
+    } catch (e) {}
+    for (const source of sources) {
+      const no = extractEpisodeNo(source);
+      if (no != null) return no;
+    }
+    const urlEp = location.href.match(/[?&#/]ep(?:isode)?[=/]0*(\d+)/i);
+    return urlEp ? parseInt(urlEp[1], 10) : null;
+  }
+
+  async function collectAutoInfoAcrossFrames() {
+    try {
+      const res = await chrome.runtime.sendMessage({ type: "AUTO_COLLECT_TITLES" });
+      if (res && res.ok && Array.isArray(res.titles)) {
+        return { titles: res.titles, episodeHint: res.episodeHint ?? null };
+      }
+    } catch (e) {}
+    return { titles: collectCandidates(), episodeHint: detectActiveEpisode() };
+  }
+
+  async function tryAutoLoad(retry = 0) {
+    if (!rule || !rule.autoLoad || !video) return;
+    if (video.ownerDocument && video.ownerDocument !== document) return;
+    const key = getVideoKey();
+    if (autoAttemptKey === key) return;
+
+    const autoInfo = await collectAutoInfoAcrossFrames();
+    let candidates = autoInfo.titles;
+    if (matchedKeyword && !candidates.includes(matchedKeyword)) {
+      candidates.unshift(matchedKeyword);
+    }
+    if (!candidates.length && retry < 6) {
+      setTimeout(() => tryAutoLoad(retry + 1), 700);
       return;
     }
-    autoTried = true;
-    try {
-      const res = await chrome.runtime.sendMessage({ type: "AUTO_LOAD", title });
-      if (!res || !res.ok) {
-        console.info("[danmu] 自动装填未完成", res && res.reason);
-      } else {
-        matchState = "done";
-        notifyWizardState();
+    autoAttemptKey = key;
+    autoNoticeShown = false;
+    candidates = candidates.slice(0, 3);
+    const episodeHint = autoInfo.episodeHint != null ? autoInfo.episodeHint : findEpisodeHint(candidates);
+    console.info("[danmu] 标题匹配候选", {
+      titles: candidates,
+      episodeHint,
+      activeEpisode: autoInfo.episodeHint
+    });
+    showToast(`正在匹配《${candidates[0] || "当前视频"}》的弹幕…`, { persistent: true });
+
+    let matched = null;
+    for (const title of candidates) {
+      try {
+        const res = await chrome.runtime.sendMessage({
+          type: "API_SEARCH_ANIME",
+          keyword: title
+        });
+        if (res && res.ok && (res.items || []).length) {
+          matched = { title, animes: res.items };
+          break;
+        }
+      } catch (e) {
+        console.info("[danmu] 作品搜索失败", e && e.message ? e.message : String(e));
       }
+    }
+
+    if (!matched) {
+      console.info("[danmu] 标题匹配失败", { titles: candidates });
+      showToast(`没有找到《${candidates[0] || "当前视频"}》的弹幕，点此手动选择`, {
+        actionText: "手动选择",
+        onAction: () =>
+          openPicker({
+            title: candidates[0] || "当前视频",
+            keyword: candidates[0] || "",
+            animes: [],
+            episodeHint
+          })
+      });
+      return;
+    }
+
+    console.info("[danmu] 标题匹配成功", {
+      title: matched.title,
+      count: matched.animes.length,
+      episodeHint
+    });
+    openPicker({
+      title: matched.title,
+      keyword: matched.title,
+      animes: matched.animes,
+      episodeHint
+    });
+  }
+
+  function applyResolved(res) {
+    loadComments(res.comments || []);
+    currentEpisode = res.episode || "";
+    matchState = "done";
+    if (res.anime) matchedKeyword = res.anime;
+    notifyWizardState();
+  }
+
+  function notifyAutoFailure(res, candidates, episodeHint) {
+    autoNoticeShown = true;
+    retryContext = { keyword: candidates[0] || matchedKeyword || "", episodeHint };
+    console.info("[danmu] 自动装填未命中", {
+      titles: candidates,
+      reason: (res && res.reason) || "unknown",
+      tried: (res && res.tried) || 0,
+      episodeHint
+    });
+    showToast("自动装填未命中，可改词后按当前集重试", {
+      actionText: "改词重试",
+      onAction: openRetryCard
+    });
+  }
+
+  function openRetryCard() {
+    openMatchCard();
+    const input = matchCard && matchCard.querySelector(".dmc-input");
+    if (input) input.value = retryContext.keyword || "";
+    const hint = retryContext.episodeHint;
+    setWizard({
+      status: `「${retryContext.keyword || "当前标题"}」未命中，可改词后按当前集${
+        hint != null ? `（第 ${hint} 集）` : ""
+      }快速重试。`,
+      keyword: retryContext.keyword || ""
+    });
+  }
+
+  async function quickRetry(keyword) {
+    const kw = cleanTitle(keyword);
+    if (!kw) return;
+    matchedKeyword = kw;
+    notifyKeyword(kw);
+    setWizard({
+      step: "keyword",
+      status: `正在按当前集重试《${kw}》…`,
+      busy: true,
+      error: false,
+      keyword: kw
+    });
+    console.info("[danmu] 改词重试关键词", { keyword: kw, episodeHint: retryContext.episodeHint });
+    try {
+      const res = await chrome.runtime.sendMessage({
+        type: "AUTO_RESOLVE",
+        titles: [kw],
+        episodeHint: retryContext.episodeHint,
+        videoKey: `${getVideoKey()}::retry::${kw}`
+      });
+      if (res && res.ok && (res.comments || []).length) {
+        applyResolved(res);
+        closeMatchCard(true);
+        return;
+      }
+      setWizard({
+        status: `仍未能按「${kw}」装填弹幕，可继续在下方选择作品与剧集。`,
+        busy: false,
+        error: true
+      });
     } catch (e) {
-      console.info("[danmu] 自动装填失败", e);
+      setWizard({ status: `重试失败：${e.message || e}`, busy: false, error: true });
     }
   }
 
@@ -976,6 +1552,174 @@
         transition: opacity 180ms ease, transform 180ms ease;
       }
       #${TOAST_ID}.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+      #${TOAST_ID} .dmc-toast-action {
+        margin-left: 10px;
+        padding: 2px 7px;
+        border: 1px solid #6ed9b8;
+        border-radius: 2px;
+        background: transparent;
+        color: #6ed9b8;
+        font: 600 10px/1.4 ui-monospace, Menlo, monospace;
+        cursor: pointer;
+        pointer-events: auto;
+      }
+      #${TOAST_ID}:not(.show) .dmc-toast-action { pointer-events: none; }
+
+      #${PICKER_ID} {
+        position: fixed;
+        z-index: 2147483647;
+        display: none;
+        width: 360px;
+        max-width: calc(100vw - 24px);
+        background: #182225;
+        color: #ecf3f0;
+        border: 1px solid #2a383b;
+        border-top: 3px solid #6ed9b8;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif;
+        pointer-events: auto;
+        overflow: hidden;
+      }
+      #${PICKER_ID} .dmp-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px 14px 10px;
+      }
+      #${PICKER_ID} .dmp-eyebrow {
+        font: 600 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+        letter-spacing: 0.16em;
+        color: #6ed9b8;
+      }
+      #${PICKER_ID} .dmp-close {
+        border: 0;
+        background: none;
+        color: #889a94;
+        font: 18px/1 sans-serif;
+        cursor: pointer;
+        padding: 0 2px;
+      }
+      #${PICKER_ID} .dmp-match { padding: 0 14px 12px; }
+      #${PICKER_ID} .dmp-label {
+        font: 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+        letter-spacing: 0.1em;
+        color: #889a94;
+      }
+      #${PICKER_ID} .dmp-title {
+        margin-top: 5px;
+        font-size: 13px;
+        font-weight: 600;
+        line-height: 1.4;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      #${PICKER_ID} .dmp-steps { display: flex; gap: 6px; padding: 0 14px 8px; }
+      #${PICKER_ID} .dmp-step {
+        flex: 1;
+        height: 3px;
+        background: #2a383b;
+      }
+      #${PICKER_ID} .dmp-step.active { background: #6ed9b8; }
+      #${PICKER_ID} .dmp-step.done { background: #3f6b60; }
+      #${PICKER_ID} .dmp-step-labels {
+        display: flex;
+        gap: 6px;
+        padding: 0 14px 10px;
+        font: 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+        letter-spacing: 0.08em;
+      }
+      #${PICKER_ID} .dmp-step-labels span { flex: 1; color: #889a94; }
+      #${PICKER_ID} .dmp-step-labels span.active { color: #6ed9b8; }
+      #${PICKER_ID} .dmp-search { display: flex; gap: 6px; padding: 0 14px 10px; }
+      #${PICKER_ID} .dmp-search input {
+        flex: 1;
+        min-width: 0;
+        background: #0f1618;
+        border: 1px solid #2a383b;
+        color: #ecf3f0;
+        padding: 7px 9px;
+        font-family: inherit;
+        font-size: 12px;
+        outline: none;
+      }
+      #${PICKER_ID} .dmp-search input:focus { border-color: #6ed9b8; }
+      #${PICKER_ID} .dmp-search button {
+        border: 1px solid #6ed9b8;
+        background: #6ed9b8;
+        color: #0f1618;
+        padding: 0 12px;
+        font: 600 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+        cursor: pointer;
+      }
+      #${PICKER_ID} .dmp-list {
+        max-height: 260px;
+        overflow: auto;
+        border-top: 1px solid #2a383b;
+      }
+      #${PICKER_ID} .dmp-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 10px;
+        width: 100%;
+        text-align: left;
+        border: 0;
+        border-left: 3px solid transparent;
+        background: transparent;
+        color: #ecf3f0;
+        padding: 10px 14px;
+        font-family: inherit;
+        font-size: 12px;
+        line-height: 1.4;
+        cursor: pointer;
+      }
+      #${PICKER_ID} .dmp-row:hover { background: #1e2b2e; border-left-color: #6ed9b8; }
+      #${PICKER_ID} .dmp-row.recommended { border-left-color: #6ed9b8; }
+      #${PICKER_ID} .dmp-main { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      #${PICKER_ID} .dmp-meta {
+        font: 9px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+        color: #889a94;
+        flex-shrink: 0;
+      }
+      #${PICKER_ID} .dmp-empty {
+        padding: 22px 14px;
+        text-align: center;
+        font-size: 12px;
+        line-height: 1.6;
+        color: #889a94;
+      }
+      #${PICKER_ID} .dmp-empty.error { color: #e2a06b; }
+      #${PICKER_ID} .dmp-foot {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 10px 14px;
+        border-top: 1px solid #2a383b;
+      }
+      #${PICKER_ID} .dmp-status {
+        flex: 1;
+        font: 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+        color: #889a94;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      #${PICKER_ID} .dmp-status.error { color: #e2a06b; }
+      #${PICKER_ID} .dmp-status.busy { color: #6ed9b8; }
+      #${PICKER_ID} .dmp-back, #${PICKER_ID} .dmp-cancel {
+        border: 1px solid #2a383b;
+        background: transparent;
+        color: #889a94;
+        padding: 5px 11px;
+        font-family: inherit;
+        font-size: 11px;
+        cursor: pointer;
+      }
+      #${PICKER_ID} .dmp-back:hover, #${PICKER_ID} .dmp-cancel:hover {
+        color: #ecf3f0;
+        border-color: #889a94;
+      }
     `;
     document.head.appendChild(style);
   }

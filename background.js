@@ -23,7 +23,7 @@ const DEFAULT_CONFIG = {
     color: "#ffffff",
     opacity: 0.9,
     speed: 8,
-    maxLines: 8
+    maxLines: 15
   },
   cacheTTL: 300000
 };
@@ -35,12 +35,14 @@ chrome.runtime.onInstalled.addListener(async () => {
   await chrome.storage.sync.set({ config });
   await migrateApiConfig();
   await ensureDefaultRule();
+  await migrateMaxLines();
   safeSync();
 });
 
 chrome.runtime.onStartup.addListener(async () => {
   await migrateApiConfig();
   await ensureDefaultRule();
+  await migrateMaxLines();
   safeSync();
 });
 
@@ -76,6 +78,17 @@ async function ensureDefaultRule() {
     config.defaultRuleMigrated = true;
   }
   if (changed) await chrome.storage.sync.set({ config });
+}
+
+async function migrateMaxLines() {
+  const { config } = await chrome.storage.sync.get({ config: DEFAULT_CONFIG });
+  if (!config || !config.style || config.maxLinesMigrated) return;
+  if (config.style.maxLines === 8) {
+    config.style.maxLines = 15;
+    config.maxLinesMigrated = true;
+    await chrome.storage.sync.set({ config });
+    await broadcastConfig(config);
+  }
 }
 
 function safeSync() {
@@ -133,7 +146,11 @@ async function handleMessage(msg, sender) {
     case "API_GET_COMMENTS":
       return { ok: true, comments: await getComments(msg) };
     case "AUTO_LOAD":
-      return autoLoad(msg.title, sender.tab && sender.tab.id);
+      return autoLoad(msg.title, sender.tab && sender.tab.id, sender.frameId);
+    case "AUTO_RESOLVE":
+      return resolveAutoDanmu(msg, sender);
+    case "AUTO_COLLECT_TITLES":
+      return collectTitlesFromFrames(sender.tab && sender.tab.id);
     case "DANMU_KEYWORD_MATCHED":
     case "DANMU_WIZARD_STATE":
       return { ok: true };
@@ -242,8 +259,52 @@ async function getComments(target = {}) {
   return parseComments(data);
 }
 
-async function autoLoad(title, tabId) {
-  if (!title) return { ok: false, reason: "no-title" };
+const AUTO_MAX_TITLES = 3;
+const autoResolveInFlight = new Map();
+
+async function resolveAutoDanmu(msg = {}, sender = {}) {
+  const rawTitles = Array.isArray(msg.titles) ? msg.titles : [msg.keyword || msg.title];
+  const titles = [];
+  for (const item of rawTitles) {
+    const title = String(item || "").trim();
+    if (title && !titles.includes(title)) titles.push(title);
+    if (titles.length >= AUTO_MAX_TITLES) break;
+  }
+  if (!titles.length) return { ok: false, reason: "no-title", tried: 0 };
+
+  const tabId = sender.tab && sender.tab.id;
+  const dedupeKey = tabId != null ? `${tabId}::${msg.videoKey || titles.join("|")}` : "";
+  if (dedupeKey && autoResolveInFlight.has(dedupeKey)) {
+    return autoResolveInFlight.get(dedupeKey);
+  }
+
+  const task = (async () => {
+    let lastReason = "no-anime";
+    let tried = 0;
+    for (const title of titles) {
+      tried++;
+      try {
+        const res = await resolveByTitle(title, msg.episodeHint);
+        if (res.ok) return { ...res, title, tried };
+        lastReason = res.reason;
+      } catch (err) {
+        lastReason = "error";
+        console.info("[danmu] 自动匹配候选失败", err && err.message ? err.message : String(err));
+      }
+    }
+    return { ok: false, reason: lastReason, tried };
+  })();
+
+  if (dedupeKey) {
+    if (autoResolveInFlight.size > 50) autoResolveInFlight.clear();
+    autoResolveInFlight.set(dedupeKey, task);
+    const cleanup = () => autoResolveInFlight.delete(dedupeKey);
+    task.then(cleanup, cleanup);
+  }
+  return task;
+}
+
+async function resolveByTitle(title, episodeHint) {
   const animes = await searchAnime(title);
   if (!animes.length) return { ok: false, reason: "no-anime" };
   const anime = animes[0];
@@ -254,28 +315,56 @@ async function autoLoad(title, tabId) {
   });
   if (!episodes.length) return { ok: false, reason: "no-episode" };
 
-  const wanted = extractEpisodeNo(title);
+  const wanted = normalizeEpisodeHint(episodeHint, title);
   let episode = episodes[0];
   if (wanted != null) {
     const matched = episodes.find((e) => extractEpisodeNo(e.episodeTitle) === wanted);
     if (matched) episode = matched;
+    console.info("[danmu] 集数匹配", {
+      wanted,
+      episodeTitles: episodes.slice(0, 12).map((e) => e.episodeTitle || e.title || ""),
+      selected: episode.episodeTitle || episode.title || ""
+    });
+  } else {
+    console.info("[danmu] 未提取到集数，使用第一部剧集", episodes[0].episodeTitle || "");
   }
 
   const target = commentTarget(episode);
   if (!target.id && !target.url) return { ok: false, reason: "no-comment-target" };
   const comments = await getComments(target);
-  const episodeLabel = episode.episodeTitle || episode.title || "";
-  if (tabId) {
-    await chrome.tabs
-      .sendMessage(tabId, { type: "CONTENT_LOAD_DANMU", comments, episode: episodeLabel })
-      .catch(() => {});
-  }
   return {
     ok: true,
-    count: comments.length,
+    comments,
     anime: animeName,
-    episode: episodeLabel
+    episode: episode.episodeTitle || episode.title || "",
+    count: comments.length
   };
+}
+
+function normalizeEpisodeHint(hint, title) {
+  if (typeof hint === "number" && Number.isFinite(hint)) return hint;
+  if (hint != null) {
+    const fromHint = extractEpisodeNo(hint);
+    if (fromHint != null) return fromHint;
+  }
+  return extractEpisodeNo(title);
+}
+
+async function autoLoad(title, tabId, frameId) {
+  if (!title) return { ok: false, reason: "no-title" };
+  const res = await resolveByTitle(title, extractEpisodeNo(title));
+  if (!res.ok) return res;
+  if (tabId) {
+    const options = Number.isInteger(frameId) ? { frameId } : undefined;
+    await chrome.tabs
+      .sendMessage(
+        tabId,
+        { type: "CONTENT_LOAD_DANMU", comments: res.comments, episode: res.episode },
+        options
+      )
+      .catch(() => {});
+  }
+  return { ok: true, count: res.count, anime: res.anime, episode: res.episode };
 }
 
 function extractItems(data) {
@@ -350,10 +439,43 @@ function commentTarget(item) {
 
 function extractEpisodeNo(text) {
   const s = String(text || "");
-  let m = s.match(/第\s*0*(\d+)\s*集/);
+  let m = s.match(/第\s*0*(\d+)\s*[集话]/);
   if (!m) m = s.match(/[SE]0*\d+E0*(\d+)/i);
+  if (!m) m = s.match(/EP\s*0*(\d+)/i);
   if (!m) m = s.match(/#0*(\d+)/);
   return m ? parseInt(m[1], 10) : null;
+}
+
+async function collectTitlesFromFrames(tabId) {
+  if (tabId == null) return { ok: true, titles: [], episodeHint: null };
+  let frames = [{ frameId: 0 }];
+  try {
+    const all = await chrome.webNavigation.getAllFrames({ tabId });
+    if (all && all.length) frames = all;
+    frames.sort((a, b) => a.frameId - b.frameId);
+  } catch (e) {}
+  const results = await Promise.all(
+    frames.map((frame) =>
+      chrome.tabs
+        .sendMessage(tabId, { type: "CONTENT_MATCH_KEYWORD" }, { frameId: frame.frameId })
+        .then((res) => (res && res.ok ? res : null))
+        .catch(() => null)
+    )
+  );
+  const titles = [];
+  const seen = new Set();
+  let episodeHint = null;
+  for (const res of results) {
+    if (!res) continue;
+    if (episodeHint == null && res.episodeHint != null) episodeHint = res.episodeHint;
+    for (const title of res.candidates || []) {
+      if (title && !seen.has(title)) {
+        seen.add(title);
+        titles.push(title);
+      }
+    }
+  }
+  return { ok: true, titles, episodeHint };
 }
 
 async function broadcastConfig(config) {
