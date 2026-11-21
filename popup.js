@@ -9,7 +9,8 @@ const $ = (id) => document.getElementById(id);
 function setTag(el, text, ok) {
   el.innerHTML = "";
   const tag = document.createElement("span");
-  tag.className = `tag ${ok ? "ok" : "no"}`;
+  const variant = ok === true ? "ok" : ok === false ? "no" : "";
+  tag.className = `tag ${variant}`.trim();
   tag.textContent = text;
   el.appendChild(tag);
 }
@@ -62,8 +63,17 @@ async function refreshState() {
     $("episode").textContent = res.episode || "-";
     $("wizardState").textContent = formatWizardState(res);
     $("count").textContent = String(res.loaded || 0);
-    if ((res.loaded || 0) > 0) {
-      setMessage(`已加载 ${res.loaded} 条弹幕`, "success");
+    const loaded = res.loaded || 0;
+    setTag(
+      $("matchSource"),
+      loaded ? (res.autoMatched ? "自动匹配" : "手动选择") : "未装填",
+      loaded && res.autoMatched ? true : null
+    );
+    if (loaded > 0) {
+      setMessage(
+        res.autoMatched ? `已自动匹配并加载 ${loaded} 条弹幕` : `已加载 ${loaded} 条弹幕`,
+        "success"
+      );
     }
     const { config } = await chrome.runtime.sendMessage({ type: "GET_CONFIG" });
     const rule = (config.rules || []).find((r) => r.name === res.rule);
@@ -78,6 +88,7 @@ async function refreshState() {
     $("episode").textContent = "-";
     $("wizardState").textContent = "-";
     $("count").textContent = "0";
+    setTag($("matchSource"), "未装填", null);
     setMessage("当前网址不在清单中，仍可手动搜索；加载弹幕时会向当前页注入弹幕层。", "error");
   }
 }

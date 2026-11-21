@@ -314,17 +314,24 @@ async function resolveByTitle(title, episodeHint) {
   if (!episodes.length) return { ok: false, reason: "no-episode" };
 
   const wanted = normalizeEpisodeHint(episodeHint, title);
-  let episode = episodes[0];
+  let episode = null;
+  let episodeFromHint = false;
   if (wanted != null) {
-    const matched = episodes.find((e) => extractEpisodeNo(e.episodeTitle) === wanted);
-    if (matched) episode = matched;
-    console.info("[danmu] 集数匹配", {
-      wanted,
-      episodeTitles: episodes.slice(0, 12).map((e) => e.episodeTitle || e.title || ""),
-      selected: episode.episodeTitle || episode.title || ""
-    });
-  } else {
-    console.info("[danmu] 未提取到集数，使用第一部剧集", episodes[0].episodeTitle || "");
+    episode = episodes.find(
+      (e) => extractEpisodeNo(e.episodeTitle || e.title || e.name, true) === wanted
+    );
+    if (episode) {
+      episodeFromHint = true;
+      console.info("[danmu] 集数匹配", {
+        wanted,
+        episodeTitles: episodes.slice(0, 12).map((e) => e.episodeTitle || e.title || e.name || ""),
+        selected: episode.episodeTitle || episode.title || episode.name || ""
+      });
+    }
+  }
+  if (!episode) {
+    episode = episodes[0];
+    console.info("[danmu] 未确定集数，使用第一部剧集", episode.episodeTitle || episode.title || "");
   }
 
   const target = commentTarget(episode);
@@ -334,8 +341,9 @@ async function resolveByTitle(title, episodeHint) {
     ok: true,
     comments,
     anime: animeName,
-    episode: episode.episodeTitle || episode.title || "",
-    count: comments.length
+    episode: episode.episodeTitle || episode.title || episode.name || "",
+    count: comments.length,
+    episodeFromHint
   };
 }
 
@@ -418,12 +426,13 @@ function commentTarget(item) {
   return { id: id || undefined, url: url || undefined };
 }
 
-function extractEpisodeNo(text) {
+function extractEpisodeNo(text, allowLooseNumber = false) {
   const s = String(text || "");
   let m = s.match(/第\s*0*(\d+)\s*[集话]/);
   if (!m) m = s.match(/[SE]0*\d+E0*(\d+)/i);
   if (!m) m = s.match(/EP\s*0*(\d+)/i);
   if (!m) m = s.match(/#0*(\d+)/);
+  if (!m && allowLooseNumber) m = s.match(/(?:^|[^\d])0*(\d{1,3})(?:[^\d]|$)/);
   return m ? parseInt(m[1], 10) : null;
 }
 

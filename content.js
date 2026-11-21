@@ -32,6 +32,7 @@
   let wizardOpen = false;
   let comments = [];
   let currentEpisode = "";
+  let autoMatched = false;
   let emitted = 0;
   let lastTime = 0;
   let autoTried = false;
@@ -97,6 +98,7 @@
           rule: rule.name,
           loaded: comments.length,
           episode: currentEpisode,
+          autoMatched,
           url: location.href
         });
       } else if (msg.type === "CONTENT_MATCH_KEYWORD") {
@@ -122,6 +124,7 @@
         mountMatchBtn();
         sendResponse({ ok: true });
       } else if (msg.type === "CONTENT_LOAD_DANMU") {
+        autoMatched = false;
         loadComments(msg.comments || []);
         currentEpisode = msg.episode || "";
         sendResponse({ ok: true, count: comments.length });
@@ -459,6 +462,7 @@
       loadComments(res.comments);
       currentEpisode = label;
       matchState = "done";
+      autoMatched = false;
       setWizard({
         status: `已装填 ${loaded} 条弹幕 · ${label}`,
         busy: false,
@@ -1183,7 +1187,7 @@
       const animeName = picker.anime
         ? picker.anime.animeTitle || picker.anime.title || picker.anime.name || ""
         : "";
-      applyResolved({ comments: loaded, episode: label, anime: animeName });
+      applyResolved({ comments: loaded, episode: label, anime: animeName }, false);
       closePicker();
       showToast(`已装填 ${loaded.length} 条弹幕 · ${label}`, { duration: 3000 });
     } catch (e) {
@@ -1419,6 +1423,37 @@
       count: matched.animes.length,
       episodeHint
     });
+
+    if (episodeHint != null) {
+      showToast(`已确定《${matched.title}》第 ${episodeHint} 集，正在装填弹幕…`, {
+        persistent: true
+      });
+      let res = null;
+      try {
+        res = await chrome.runtime.sendMessage({
+          type: "AUTO_RESOLVE",
+          titles: [matched.title],
+          episodeHint,
+          videoKey: `${key}::auto::${episodeHint}`
+        });
+      } catch (e) {
+        console.info("[danmu] 按集自动装填失败", e && e.message ? e.message : String(e));
+      }
+      if (res && res.ok && res.episodeFromHint && (res.comments || []).length) {
+        hideToast();
+        showToast(`已按第 ${episodeHint} 集自动装填 ${res.comments.length} 条弹幕`, {
+          duration: 2600
+        });
+        applyResolved(res, true);
+        return;
+      }
+      console.info("[danmu] 按集自动装填未命中，改为手动选择", {
+        reason: res && res.reason,
+        tried: res && res.tried,
+        episodeHint
+      });
+    }
+
     openPicker({
       title: matched.title,
       keyword: matched.title,
@@ -1427,10 +1462,11 @@
     });
   }
 
-  function applyResolved(res) {
+  function applyResolved(res, auto = false) {
     loadComments(res.comments || []);
     currentEpisode = res.episode || "";
     matchState = "done";
+    autoMatched = auto;
     if (res.anime) matchedKeyword = res.anime;
     notifyWizardState();
   }
@@ -1484,7 +1520,7 @@
         videoKey: `${getVideoKey()}::retry::${kw}`
       });
       if (res && res.ok && (res.comments || []).length) {
-        applyResolved(res);
+        applyResolved(res, true);
         closeMatchCard(true);
         return;
       }
@@ -1888,6 +1924,7 @@
     clearActive();
     comments = [];
     currentEpisode = "";
+    autoMatched = false;
     emitted = 0;
     laneCursor = 0;
     topLaneCursor = 0;
