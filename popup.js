@@ -24,8 +24,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
   $("clearBtn").addEventListener("click", clearDanmu);
   $("autoMatchBtn").addEventListener("click", autoMatch);
-  $("reloadBtn").addEventListener("click", reloadAuto);
-  $("openOptions").addEventListener("click", () => chrome.runtime.openOptionsPage());
   $("addCurrentSite").addEventListener("click", addCurrentSite);
   bindSettings();
 
@@ -245,28 +243,6 @@ async function clearDanmu() {
     setMessage("已清除弹幕", "success");
   } catch (e) {
     setMessage("清除失败，请重试", "error");
-  }
-}
-
-async function reloadAuto() {
-  const title = $("keyword").value.trim();
-  if (!title) {
-    setMessage("请先输入关键字", "error");
-    return;
-  }
-  if (!(await requireContentScript())) return;
-  setMessage("正在重新自动装填…");
-  try {
-    const res = await chrome.runtime.sendMessage({ type: "AUTO_LOAD", title });
-    if (!res || !res.ok) {
-      setMessage(`自动装填未完成：${res?.reason || res?.error || "未知原因"}`, "error");
-      return;
-    }
-    setMessage(`已自动装填 ${res.count} 条弹幕：${res.episode || res.anime}`, "success");
-    $("count").textContent = String(res.count);
-    $("episode").textContent = res.episode || "-";
-  } catch (e) {
-    setMessage(e.message || String(e), "error");
   }
 }
 

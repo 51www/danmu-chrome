@@ -145,8 +145,6 @@ async function handleMessage(msg, sender) {
       };
     case "API_GET_COMMENTS":
       return { ok: true, comments: await getComments(msg) };
-    case "AUTO_LOAD":
-      return autoLoad(msg.title, sender.tab && sender.tab.id, sender.frameId);
     case "AUTO_RESOLVE":
       return resolveAutoDanmu(msg, sender);
     case "AUTO_COLLECT_TITLES":
@@ -173,7 +171,7 @@ function buildApiUrl(base, path) {
 async function api(path, options = {}) {
   const { config } = await chrome.storage.sync.get({ config: DEFAULT_CONFIG });
   if (!config.apiBase || /example\.com/.test(config.apiBase)) {
-    throw new Error("请先在插件配置页填写弹幕 API 地址");
+    throw new Error("请先在插件弹窗「设置」中填写弹幕 API 地址");
   }
   let url;
   try {
@@ -348,23 +346,6 @@ function normalizeEpisodeHint(hint, title) {
     if (fromHint != null) return fromHint;
   }
   return extractEpisodeNo(title);
-}
-
-async function autoLoad(title, tabId, frameId) {
-  if (!title) return { ok: false, reason: "no-title" };
-  const res = await resolveByTitle(title, extractEpisodeNo(title));
-  if (!res.ok) return res;
-  if (tabId) {
-    const options = Number.isInteger(frameId) ? { frameId } : undefined;
-    await chrome.tabs
-      .sendMessage(
-        tabId,
-        { type: "CONTENT_LOAD_DANMU", comments: res.comments, episode: res.episode },
-        options
-      )
-      .catch(() => {});
-  }
-  return { ok: true, count: res.count, anime: res.anime, episode: res.episode };
 }
 
 function extractItems(data) {

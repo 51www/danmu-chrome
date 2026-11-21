@@ -569,16 +569,16 @@
         "display:inline-flex",
         "align-items:center",
         "gap:7px",
-        "border:1px solid #3b4448",
-        "border-left:3px solid #6ed9b8",
-        "border-radius:2px",
-        "background:#14181a",
-        "color:#f2f0e9",
+        "border:1px solid #dce5c8",
+        "border-left:3px solid #5d8a3a",
+        "border-radius:9px",
+        "background:#fdfdf6",
+        "color:#3b4a2f",
         "font:600 11px/1 ui-monospace,SFMono-Regular,Menlo,monospace",
         "letter-spacing:.1em",
         "cursor:pointer",
         "pointer-events:auto",
-        "box-shadow:0 3px 12px rgba(0,0,0,.38)",
+        "box-shadow:0 4px 14px rgba(44,58,36,.18)",
         "opacity:1",
         "display:inline-flex",
         "visibility:visible"
@@ -656,26 +656,26 @@
         "position:fixed",
         "z-index:2147483647",
         "display:none",
-        "background:#14181a",
-        "color:#f2f0e9",
-        "border:1px solid #3b4448",
-        "border-radius:3px",
-        "box-shadow:0 14px 42px rgba(0,0,0,.5)",
+        "background:#fdfdf6",
+        "color:#3b4a2f",
+        "border:1px solid #dce5c8",
+        "border-radius:12px",
+        "box-shadow:0 18px 48px rgba(44,58,36,.22)",
         "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC',sans-serif",
         "pointer-events:auto",
         "overflow:hidden"
       ].join(";");
       matchCard.innerHTML = `
-        <div style="display:flex;justify-content:space-between;align-items:center;padding:11px 13px;border-bottom:1px solid #3b4448">
-          <span style="font:600 10px/1 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.14em;color:#6ed9b8">DANMU / 自动装填</span>
-          <button class="dmc-close" aria-label="关闭" style="border:0;background:none;color:#929c98;font:16px/1 sans-serif;cursor:pointer;padding:0 2px">×</button>
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 13px 10px;border-bottom:1px solid #dce5c8;background:linear-gradient(180deg,#f6f9e9,transparent)">
+          <span style="font:600 10px/1 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.14em;color:#5d8a3a">DANMU / 自动装填</span>
+          <button class="dmc-close" aria-label="关闭" style="display:grid;place-items:center;width:22px;height:22px;border:0;border-radius:50%;background:transparent;color:#8b9c76;font:16px/1 sans-serif;cursor:pointer;padding:0">×</button>
         </div>
         <div class="dmc-steps" style="display:flex;gap:0;padding:10px 13px 0"></div>
-        <div class="dmc-status" style="margin:9px 13px 2px;padding:8px 10px;background:#0c0f11;border-left:2px solid #6ed9b8;font:11px/1.5 ui-monospace,Menlo,monospace;color:#c7cecb"></div>
+        <div class="dmc-status" style="margin:9px 13px 2px;padding:8px 10px;background:#f1f6e4;border-left:2px solid #5d8a3a;border-radius:0 8px 8px 0;font:11px/1.5 ui-monospace,Menlo,monospace;color:#5c6b4d"></div>
         <div class="dmc-list" style="padding:6px 7px;max-height:216px;overflow:auto"></div>
-        <div class="dmc-foot" style="display:flex;gap:6px;padding:10px 13px;border-top:1px solid #3b4448">
-          <input class="dmc-input" placeholder="或手动输入标题" style="flex:1;min-width:0;background:#0c0f11;border:1px solid #3b4448;color:#f2f0e9;padding:6px 8px;font:12px sans-serif;outline:none" />
-          <button class="dmc-use" style="border:1px solid #6ed9b8;background:#6ed9b8;color:#14181a;padding:6px 10px;font:600 11px ui-monospace,Menlo,monospace;cursor:pointer">使用</button>
+        <div class="dmc-foot" style="display:flex;gap:6px;padding:10px 13px;border-top:1px solid #dce5c8;background:rgba(246,249,233,.7)">
+          <input class="dmc-input" placeholder="或手动输入标题" style="flex:1;min-width:0;background:#fffef8;border:1px solid #dce5c8;border-radius:8px;color:#3b4a2f;padding:7px 9px;font:12px sans-serif;outline:none" />
+          <button class="dmc-use" style="border:1px solid #d79a20;border-radius:999px;background:linear-gradient(180deg,#f2c25a,#e8ad35);color:#4a3a12;padding:6px 12px;font:600 11px ui-monospace,Menlo,monospace;cursor:pointer">使用</button>
         </div>
       `;
       matchCard.querySelector(".dmc-close").addEventListener("click", (e) => {
@@ -714,7 +714,7 @@
     steps.forEach(([key, label], i) => {
       if (i) {
         const sep = document.createElement("span");
-        sep.style.cssText = "flex:1;height:1px;background:#3b4448;align-self:center;margin:0 6px";
+        sep.style.cssText = "flex:1;height:1px;background:#dce5c8;align-self:center;margin:0 6px";
         box.appendChild(sep);
       }
       const node = document.createElement("span");
@@ -725,7 +725,7 @@
         "font:10px/1 ui-monospace,Menlo,monospace",
         "letter-spacing:.06em",
         "white-space:nowrap",
-        `color:${active ? "#6ed9b8" : done ? "#7fa89b" : "#5c6663"}`
+        `color:${active ? "#5d8a3a" : done ? "#8fae63" : "#9aa98a"}`
       ].join(";");
       box.appendChild(node);
     });
@@ -734,9 +734,9 @@
   function renderWizardStatus() {
     const el = matchCard.querySelector(".dmc-status");
     el.textContent = wizard.status || "准备就绪";
-    const color = wizard.error ? "#e08a6e" : wizard.busy ? "#d9cb8a" : "#6ed9b8";
+    const color = wizard.error ? "#b4653f" : wizard.busy ? "#d79a20" : "#5d8a3a";
     el.style.borderLeftColor = color;
-    el.style.color = wizard.error ? "#e8b4a3" : "#c7cecb";
+    el.style.color = wizard.error ? "#a15534" : "#5c6b4d";
     el.textContent = `${wizard.busy ? "◌ " : wizard.error ? "! " : "· "}${el.textContent}`;
   }
 
@@ -800,7 +800,7 @@
 
   function makeRow(text, highlight, onClick, meta) {
     const item = document.createElement("button");
-    const baseColor = highlight ? "#6ed9b8" : "transparent";
+    const baseColor = highlight ? "#5d8a3a" : "transparent";
     item.style.cssText = [
       "display:flex",
       "justify-content:space-between",
@@ -812,8 +812,8 @@
       "border-left:2px solid",
       baseColor,
       "background:transparent",
-      "color:#f2f0e9",
-      "padding:7px 9px",
+      "color:#3b4a2f",
+      "padding:8px 10px",
       "font:12px/1.4 sans-serif",
       "cursor:pointer"
     ].join(";");
@@ -824,13 +824,13 @@
     if (meta) {
       const tag = document.createElement("span");
       tag.textContent = meta;
-      tag.style.cssText = "font:9px ui-monospace,Menlo,monospace;color:#6b756f;flex-shrink:0";
+      tag.style.cssText = "font:9px ui-monospace,Menlo,monospace;color:#8b9c76;flex-shrink:0";
       item.appendChild(tag);
     }
     item.title = text;
     item.addEventListener("mouseenter", () => {
-      item.style.background = "#20272a";
-      item.style.borderLeftColor = "#6ed9b8";
+      item.style.background = "#eaf2d9";
+      item.style.borderLeftColor = "#5d8a3a";
     });
     item.addEventListener("mouseleave", () => {
       item.style.background = "transparent";
@@ -845,7 +845,7 @@
 
   function emptyRow(text) {
     const el = document.createElement("div");
-    el.style.cssText = "padding:12px 8px;font-size:12px;color:#929c98";
+    el.style.cssText = "padding:12px 8px;font-size:12px;color:#8b9c76";
     el.textContent = text;
     return el;
   }
@@ -1527,10 +1527,10 @@
         line-height: 1.3;
         transform: translate3d(-99999px, 0, 0);
       }
-      #${MATCH_BTN_ID}:hover { border-left-color: #9df0d6; color: #9df0d6; }
-      #${MATCH_CARD_ID} input:focus { border-color: #6ed9b8 !important; }
+      #${MATCH_BTN_ID}:hover { border-left-color: #7fa64c; color: #456c2b; }
+      #${MATCH_CARD_ID} input:focus { border-color: #5d8a3a !important; box-shadow: 0 0 0 3px rgba(93,138,58,.12); }
       #${MATCH_CARD_ID} .dmc-list::-webkit-scrollbar { width: 6px; }
-      #${MATCH_CARD_ID} .dmc-list::-webkit-scrollbar-thumb { background: #3b4448; border-radius: 3px; }
+      #${MATCH_CARD_ID} .dmc-list::-webkit-scrollbar-thumb { background: #c3d3a6; border-radius: 3px; }
       #${TOAST_ID} {
         position: fixed;
         z-index: 2147483647;
@@ -1538,15 +1538,15 @@
         top: 22px;
         transform: translateX(-50%) translateY(-8px);
         max-width: min(520px, 84vw);
-        padding: 9px 14px;
-        border: 1px solid #3b4448;
-        border-left: 3px solid #6ed9b8;
-        border-radius: 2px;
-        background: #14181a;
-        color: #f2f0e9;
+        padding: 10px 15px;
+        border: 1px solid #dce5c8;
+        border-left: 3px solid #e8ad35;
+        border-radius: 10px;
+        background: #fdfdf6;
+        color: #3b4a2f;
         font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
         letter-spacing: 0.03em;
-        box-shadow: 0 6px 20px rgba(0,0,0,0.45);
+        box-shadow: 0 8px 24px rgba(44,58,36,0.18);
         opacity: 0;
         pointer-events: none;
         transition: opacity 180ms ease, transform 180ms ease;
@@ -1554,11 +1554,11 @@
       #${TOAST_ID}.show { opacity: 1; transform: translateX(-50%) translateY(0); }
       #${TOAST_ID} .dmc-toast-action {
         margin-left: 10px;
-        padding: 2px 7px;
-        border: 1px solid #6ed9b8;
-        border-radius: 2px;
-        background: transparent;
-        color: #6ed9b8;
+        padding: 3px 9px;
+        border: 1px solid #d79a20;
+        border-radius: 999px;
+        background: #fbf1d8;
+        color: #8a6412;
         font: 600 10px/1.4 ui-monospace, Menlo, monospace;
         cursor: pointer;
         pointer-events: auto;
@@ -1571,10 +1571,12 @@
         display: none;
         width: 360px;
         max-width: calc(100vw - 24px);
-        background: #182225;
-        color: #ecf3f0;
-        border: 1px solid #2a383b;
-        border-top: 3px solid #6ed9b8;
+        background: #fdfdf6;
+        color: #3b4a2f;
+        border: 1px solid #dce5c8;
+        border-top: 3px solid #5d8a3a;
+        border-radius: 12px;
+        box-shadow: 0 18px 48px rgba(44,58,36,0.22);
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif;
         pointer-events: auto;
         overflow: hidden;
@@ -1583,26 +1585,33 @@
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 12px 14px 10px;
+        padding: 13px 14px 10px;
+        background: linear-gradient(180deg, #f6f9e9, transparent);
       }
       #${PICKER_ID} .dmp-eyebrow {
         font: 600 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
         letter-spacing: 0.16em;
-        color: #6ed9b8;
+        color: #5d8a3a;
       }
       #${PICKER_ID} .dmp-close {
+        display: grid;
+        place-items: center;
+        width: 22px;
+        height: 22px;
         border: 0;
-        background: none;
-        color: #889a94;
-        font: 18px/1 sans-serif;
+        border-radius: 50%;
+        background: transparent;
+        color: #8b9c76;
+        font: 16px/1 sans-serif;
         cursor: pointer;
-        padding: 0 2px;
+        padding: 0;
       }
+      #${PICKER_ID} .dmp-close:hover { background: #eaf2d9; color: #456c2b; }
       #${PICKER_ID} .dmp-match { padding: 0 14px 12px; }
       #${PICKER_ID} .dmp-label {
         font: 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
         letter-spacing: 0.1em;
-        color: #889a94;
+        color: #8b9c76;
       }
       #${PICKER_ID} .dmp-title {
         margin-top: 5px;
@@ -1612,15 +1621,17 @@
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+        color: #456c2b;
       }
       #${PICKER_ID} .dmp-steps { display: flex; gap: 6px; padding: 0 14px 8px; }
       #${PICKER_ID} .dmp-step {
         flex: 1;
-        height: 3px;
-        background: #2a383b;
+        height: 4px;
+        border-radius: 999px;
+        background: #dce5c8;
       }
-      #${PICKER_ID} .dmp-step.active { background: #6ed9b8; }
-      #${PICKER_ID} .dmp-step.done { background: #3f6b60; }
+      #${PICKER_ID} .dmp-step.active { background: #5d8a3a; }
+      #${PICKER_ID} .dmp-step.done { background: #8fae63; }
       #${PICKER_ID} .dmp-step-labels {
         display: flex;
         gap: 6px;
@@ -1628,33 +1639,35 @@
         font: 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
         letter-spacing: 0.08em;
       }
-      #${PICKER_ID} .dmp-step-labels span { flex: 1; color: #889a94; }
-      #${PICKER_ID} .dmp-step-labels span.active { color: #6ed9b8; }
+      #${PICKER_ID} .dmp-step-labels span { flex: 1; color: #8b9c76; }
+      #${PICKER_ID} .dmp-step-labels span.active { color: #5d8a3a; }
       #${PICKER_ID} .dmp-search { display: flex; gap: 6px; padding: 0 14px 10px; }
       #${PICKER_ID} .dmp-search input {
         flex: 1;
         min-width: 0;
-        background: #0f1618;
-        border: 1px solid #2a383b;
-        color: #ecf3f0;
+        background: #fffef8;
+        border: 1px solid #dce5c8;
+        border-radius: 8px;
+        color: #3b4a2f;
         padding: 7px 9px;
         font-family: inherit;
         font-size: 12px;
         outline: none;
       }
-      #${PICKER_ID} .dmp-search input:focus { border-color: #6ed9b8; }
+      #${PICKER_ID} .dmp-search input:focus { border-color: #5d8a3a; box-shadow: 0 0 0 3px rgba(93,138,58,.12); }
       #${PICKER_ID} .dmp-search button {
-        border: 1px solid #6ed9b8;
-        background: #6ed9b8;
-        color: #0f1618;
-        padding: 0 12px;
+        border: 1px solid #d79a20;
+        border-radius: 999px;
+        background: linear-gradient(180deg, #f2c25a, #e8ad35);
+        color: #4a3a12;
+        padding: 0 14px;
         font: 600 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
         cursor: pointer;
       }
       #${PICKER_ID} .dmp-list {
         max-height: 260px;
         overflow: auto;
-        border-top: 1px solid #2a383b;
+        border-top: 1px solid #dce5c8;
       }
       #${PICKER_ID} .dmp-row {
         display: flex;
@@ -1666,19 +1679,19 @@
         border: 0;
         border-left: 3px solid transparent;
         background: transparent;
-        color: #ecf3f0;
+        color: #3b4a2f;
         padding: 10px 14px;
         font-family: inherit;
         font-size: 12px;
         line-height: 1.4;
         cursor: pointer;
       }
-      #${PICKER_ID} .dmp-row:hover { background: #1e2b2e; border-left-color: #6ed9b8; }
-      #${PICKER_ID} .dmp-row.recommended { border-left-color: #6ed9b8; }
+      #${PICKER_ID} .dmp-row:hover { background: #eaf2d9; border-left-color: #5d8a3a; }
+      #${PICKER_ID} .dmp-row.recommended { border-left-color: #e8ad35; background: #f6f9e9; }
       #${PICKER_ID} .dmp-main { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       #${PICKER_ID} .dmp-meta {
         font: 9px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
-        color: #889a94;
+        color: #8b9c76;
         flex-shrink: 0;
       }
       #${PICKER_ID} .dmp-empty {
@@ -1686,39 +1699,42 @@
         text-align: center;
         font-size: 12px;
         line-height: 1.6;
-        color: #889a94;
+        color: #8b9c76;
       }
-      #${PICKER_ID} .dmp-empty.error { color: #e2a06b; }
+      #${PICKER_ID} .dmp-empty.error { color: #b4653f; }
       #${PICKER_ID} .dmp-foot {
         display: flex;
         align-items: center;
         justify-content: space-between;
         gap: 10px;
         padding: 10px 14px;
-        border-top: 1px solid #2a383b;
+        border-top: 1px solid #dce5c8;
+        background: rgba(246,249,233,0.7);
       }
       #${PICKER_ID} .dmp-status {
         flex: 1;
         font: 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
-        color: #889a94;
+        color: #8b9c76;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
       }
-      #${PICKER_ID} .dmp-status.error { color: #e2a06b; }
-      #${PICKER_ID} .dmp-status.busy { color: #6ed9b8; }
+      #${PICKER_ID} .dmp-status.error { color: #b4653f; }
+      #${PICKER_ID} .dmp-status.busy { color: #5d8a3a; }
       #${PICKER_ID} .dmp-back, #${PICKER_ID} .dmp-cancel {
-        border: 1px solid #2a383b;
-        background: transparent;
-        color: #889a94;
+        border: 1px solid #dce5c8;
+        border-radius: 8px;
+        background: var(--panel, #fdfdf6);
+        color: #6f7f5e;
         padding: 5px 11px;
         font-family: inherit;
         font-size: 11px;
         cursor: pointer;
       }
       #${PICKER_ID} .dmp-back:hover, #${PICKER_ID} .dmp-cancel:hover {
-        color: #ecf3f0;
-        border-color: #889a94;
+        color: #456c2b;
+        border-color: #b7d08e;
+        background: #eaf2d9;
       }
     `;
     document.head.appendChild(style);
