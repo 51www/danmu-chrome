@@ -131,6 +131,7 @@
       } else if (msg.type === "CONTENT_SET_STYLE") {
         config.style = { ...config.style, ...msg.style };
         applyStyle();
+        refreshActiveStyle();
         relayoutActive();
         sendResponse({ ok: true });
       } else if (msg.type === "CONTENT_SET_RULES") {
@@ -1800,6 +1801,22 @@
     overlay.style.color = s.color || "#ffffff";
   }
 
+  function refreshActiveStyle() {
+    if (!active.length || !config || !config.style) return;
+    const s = config.style;
+    const duration = Math.max(3, Number(s.speed) || 8);
+    const baseSize = Number(s.fontSize) || 25;
+    const baseColor = s.color || "#ffffff";
+    for (const d of active) {
+      d.el.style.color = baseColor;
+      d.el.style.fontSize = `${baseSize}px`;
+      d.duration = duration;
+      d.width = d.el.offsetWidth || 0;
+      d.height = d.el.offsetHeight || Math.ceil(baseSize * 1.3);
+      d.laneHeight = d.height + 6;
+    }
+  }
+
   function updateOverlayRect(force = false) {
     if (!overlay || !video) return;
     const r = video.getBoundingClientRect();
@@ -1983,8 +2000,8 @@
     el.className = `dm ${kind}`;
     el.textContent = comment.text || "";
     const style = config.style || {};
-    el.style.color = comment.color || style.color || "#ffffff";
-    const fontSize = Number(comment.fontSize) || Number(style.fontSize) || 25;
+    el.style.color = style.color || comment.color || "#ffffff";
+    const fontSize = Number(style.fontSize) || Number(comment.fontSize) || 25;
     el.style.fontSize = `${fontSize}px`;
     overlay.appendChild(el);
 

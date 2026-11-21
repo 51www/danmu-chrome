@@ -40,6 +40,14 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   });
 
+  window.addEventListener("pagehide", () => {
+    if (saveTimer) {
+      clearTimeout(saveTimer);
+      saveTimer = 0;
+      commitNow();
+    }
+  });
+
   await Promise.all([refreshState(), loadConfig()]);
 });
 
@@ -446,11 +454,15 @@ function lines(value) {
 function scheduleSave() {
   clearTimeout(saveTimer);
   setConfigStatus("待保存…");
-  saveTimer = setTimeout(() => saveConfig("已保存并即时生效"), 400);
+  saveTimer = setTimeout(() => {
+    saveTimer = 0;
+    saveConfig("已保存并即时生效");
+  }, 400);
 }
 
 function commitNow(message = "已保存并即时生效") {
   clearTimeout(saveTimer);
+  saveTimer = 0;
   return saveConfig(message);
 }
 
