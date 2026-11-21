@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Danmu Overlay",
+  "name": "幕伴",
   "version": "0.1.0",
-  "description": "在配置清单匹配的视频站点上叠加 danmu_api 弹幕",
+  "description": "幕伴：在匹配的视频站点上叠加弹幕",
   "permissions": ["storage", "scripting", "activeTab", "webNavigation"],
   "host_permissions": ["https://danmu-api-93060.app.workbuddy.host/*"],
   "optional_host_permissions": ["https://*/*", "http://*/*"],
@@ -15,6 +15,6 @@
   "action": {
     "default_icon": "icon.png",
     "default_popup": "popup.html",
-    "default_title": "弹幕叠加"
+    "default_title": "幕伴"
   }
 }

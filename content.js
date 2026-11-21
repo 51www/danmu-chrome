@@ -668,7 +668,7 @@
       ].join(";");
       matchCard.innerHTML = `
         <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 13px 10px;border-bottom:1px solid #dce5c8;background:linear-gradient(180deg,#f6f9e9,transparent)">
-          <span style="font:600 10px/1 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.14em;color:#5d8a3a">DANMU / 自动装填</span>
+          <span style="font:600 10px/1 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.14em;color:#5d8a3a">幕伴 / 自动装填</span>
           <button class="dmc-close" aria-label="关闭" style="display:grid;place-items:center;width:22px;height:22px;border:0;border-radius:50%;background:transparent;color:#8b9c76;font:16px/1 sans-serif;cursor:pointer;padding:0">×</button>
         </div>
         <div class="dmc-steps" style="display:flex;gap:0;padding:10px 13px 0"></div>
@@ -901,7 +901,7 @@
     pickerCard.id = PICKER_ID;
     pickerCard.innerHTML = `
       <div class="dmp-head">
-        <span class="dmp-eyebrow">DANMU / SELECT</span>
+        <span class="dmp-eyebrow">幕伴 / 选择</span>
         <button class="dmp-close" type="button" aria-label="取消选择">×</button>
       </div>
       <div class="dmp-match">
