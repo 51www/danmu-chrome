@@ -35,7 +35,7 @@ function parseStructuredKeyword(text) {
 
 async function autoResolveAndLoad(parsed) {
   const loadingText = `已识别《${parsed.name}》第 ${parsed.episode} 集，正在装填…`;
-  setMessage(loadingText);
+  setMessage(loadingText, "loading");
   setFlowStage("collect", loadingText);
   if (!(await requireContentScript())) {
     setFlowStage("idle", "无法注入弹幕层");
@@ -202,7 +202,7 @@ async function doSearch() {
     }
     return;
   }
-  setMessage("正在搜索作品…");
+  setMessage("正在搜索作品…", "loading");
   setFlowStage("collect", "正在搜索作品…");
   clearResults();
   try {
@@ -223,7 +223,7 @@ async function doSearch() {
 
 async function loadEpisodes(anime) {
   const animeName = anime.animeTitle || anime.title || anime.name || "";
-  setMessage(`正在获取《${animeName}》剧集…`);
+  setMessage(`正在获取《${animeName}》剧集…`, "loading");
   setFlowStage("collect", `正在获取《${animeName}》剧集…`);
   clearResults();
   try {
@@ -254,7 +254,7 @@ async function autoMatch() {
     setFlowStage("idle", "无法注入弹幕层");
     return;
   }
-  setMessage("正在按站点标题规则匹配关键词…");
+  setMessage("正在按站点标题规则匹配关键词…", "loading");
   setFlowStage("collect", "正在采集页面标题关键词…");
   try {
     let frames = [];
@@ -349,13 +349,13 @@ async function requireContentScript() {
 }
 
 async function loadComments(episode) {
-  setMessage("正在准备弹幕层…");
+  setMessage("正在准备弹幕层…", "loading");
   setFlowStage("collect", "正在准备弹幕层…");
   if (!(await requireContentScript())) {
     setFlowStage("idle", "无法注入弹幕层");
     return;
   }
-  setMessage("正在获取弹幕…");
+  setMessage("正在获取弹幕…", "loading");
   setFlowStage("collect", "正在获取弹幕…");
   const target = { id: episode.episodeId || episode.commentId || episode.id, url: episode.url };
   try {

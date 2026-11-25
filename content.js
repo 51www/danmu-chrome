@@ -686,7 +686,7 @@
           <button class="dmc-close" aria-label="关闭" style="display:grid;place-items:center;width:22px;height:22px;border:0;border-radius:50%;background:transparent;color:#8b9c76;font:16px/1 sans-serif;cursor:pointer;padding:0">×</button>
         </div>
         <div class="dmc-steps" style="display:flex;gap:0;padding:10px 13px 0"></div>
-        <div class="dmc-status" style="margin:9px 13px 2px;padding:8px 10px;background:#f1f6e4;border-left:2px solid #5d8a3a;border-radius:0 8px 8px 0;font:11px/1.5 ui-monospace,Menlo,monospace;color:#5c6b4d"><span class="dmc-spin" hidden></span><span class="dmc-status-text"></span></div>
+        <div class="dmc-status" style="margin:9px 13px 2px;padding:8px 10px;background:#f1f6e4;border:1px solid #c9d9a8;border-radius:9px;font:11px/1.5 ui-monospace,Menlo,monospace;color:#456c2b"><span class="dmc-spin" hidden></span><span class="dmc-status-text"></span></div>
         <div class="dmc-list" style="padding:6px 7px;max-height:216px;overflow:auto"></div>
         <div class="dmc-foot" style="display:flex;gap:6px;padding:10px 13px;border-top:1px solid #dce5c8;background:rgba(246,249,233,.7)">
           <input class="dmc-input" placeholder="或手动输入标题" style="flex:1;min-width:0;background:#fffef8;border:1px solid #dce5c8;border-radius:8px;color:#3b4a2f;padding:7px 9px;font:12px sans-serif;outline:none" />
@@ -752,10 +752,16 @@
     const spin = el.querySelector(".dmc-spin");
     textEl.textContent = wizard.status || "准备就绪";
     spin.hidden = !wizard.busy;
-    const color = wizard.error ? "#b4653f" : wizard.busy ? "#d79a20" : "#5d8a3a";
-    el.style.borderLeftColor = color;
-    el.style.color = wizard.error ? "#a15534" : "#5c6b4d";
-    textEl.textContent = `${wizard.busy ? "" : wizard.error ? "! " : "· "}${textEl.textContent}`;
+    const palette = wizard.error
+      ? { bg: "#fbe9dd", border: "#e4c3ad", text: "#a15534" }
+      : wizard.busy
+        ? { bg: "#fbf1d8", border: "#ecd39a", text: "#8a6412" }
+        : { bg: "#e9f3d7", border: "#b7d08e", text: "#456c2b" };
+    el.style.background = palette.bg;
+    el.style.borderColor = palette.border;
+    el.style.color = palette.text;
+    el.style.fontWeight = wizard.busy || wizard.error ? "600" : "400";
+    textEl.textContent = `${wizard.error ? "! " : ""}${textEl.textContent}`;
   }
 
   function renderWizardList(candidates) {
@@ -818,18 +824,20 @@
 
   function makeRow(text, highlight, onClick, meta) {
     const item = document.createElement("button");
-    const baseColor = highlight ? "#5d8a3a" : "transparent";
+    const baseBg = highlight ? "#fbf1d8" : "transparent";
+    const baseBorder = highlight ? "#e0c07a" : "transparent";
     item.style.cssText = [
       "display:flex",
       "justify-content:space-between",
       "align-items:center",
       "gap:8px",
-      "width:100%",
+      "width:calc(100% - 14px)",
+      "margin:2px 7px",
       "text-align:left",
-      "border:0",
-      "border-left:2px solid",
-      baseColor,
-      "background:transparent",
+      "border:1px solid",
+      baseBorder,
+      "border-radius:8px",
+      "background:" + baseBg,
       "color:#3b4a2f",
       "padding:8px 10px",
       "font:12px/1.4 sans-serif",
@@ -848,11 +856,11 @@
     item.title = text;
     item.addEventListener("mouseenter", () => {
       item.style.background = "#eaf2d9";
-      item.style.borderLeftColor = "#5d8a3a";
+      item.style.borderColor = "#b7d08e";
     });
     item.addEventListener("mouseleave", () => {
-      item.style.background = "transparent";
-      item.style.borderLeftColor = baseColor;
+      item.style.background = baseBg;
+      item.style.borderColor = baseBorder;
     });
     item.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -891,6 +899,7 @@
     label.textContent = text;
     body.append(mark, label);
     toast.appendChild(body);
+    toast.dataset.stage = options.stage || "info";
     let action = toast.querySelector("button");
     if (options.actionText && typeof options.onAction === "function") {
       if (!action) {
@@ -1646,7 +1655,7 @@
         line-height: 1.3;
         transform: translate3d(-99999px, 0, 0);
       }
-      #${MATCH_BTN_ID}:hover { border-left-color: #7fa64c; color: #456c2b; }
+      #${MATCH_BTN_ID}:hover { border-color: #7fa64c; color: #456c2b; }
       #${MATCH_CARD_ID} input:focus { border-color: #5d8a3a !important; box-shadow: 0 0 0 3px rgba(93,138,58,.12); }
       #${MATCH_CARD_ID} .dmc-list::-webkit-scrollbar { width: 6px; }
       #${MATCH_CARD_ID} .dmc-list::-webkit-scrollbar-thumb { background: #c3d3a6; border-radius: 3px; }
@@ -1657,11 +1666,10 @@
         top: 22px;
         transform: translateX(-50%) translateY(-8px);
         max-width: min(520px, 84vw);
-        padding: 10px 15px;
+        padding: 10px 14px;
         border: 1px solid #dce5c8;
-        border-left: 3px solid #e8ad35;
-        border-radius: 10px;
-        background: #fdfdf6;
+        border-radius: 12px;
+        background: linear-gradient(180deg, #f6f9e9, #fdfdf6);
         color: #3b4a2f;
         font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
         letter-spacing: 0.03em;
@@ -1683,17 +1691,24 @@
         pointer-events: auto;
       }
       #${TOAST_ID}:not(.show) .dmc-toast-action { pointer-events: none; }
-      #${TOAST_ID} .dmc-toast-body { display: inline-flex; align-items: center; gap: 7px; }
-      #${TOAST_ID} .dmc-toast-mark { flex: none; width: 11px; height: 11px; display: grid; place-items: center; }
-      #${TOAST_ID} .dmc-toast-mark[data-stage="collect"]::before {
-        content: ""; width: 9px; height: 9px;
-        border: 1.5px solid #d9c9a2; border-top-color: #d79a20;
-        border-radius: 50%; animation: dmc-spin .8s linear infinite;
+      #${TOAST_ID} .dmc-toast-body { display: inline-flex; align-items: center; gap: 9px; }
+      #${TOAST_ID} .dmc-toast-mark {
+        flex: none; width: 19px; height: 19px; display: grid; place-items: center;
+        border-radius: 50%; background: #e3e9d5; color: #7a8a68;
+        font: 700 12px/1 sans-serif;
       }
-      #${TOAST_ID} .dmc-toast-mark[data-stage="resolved"]::before,
-      #${TOAST_ID} .dmc-toast-mark[data-stage="loaded"]::before {
-        content: "✓"; font: 700 11px/1 sans-serif; color: #5d8a3a;
+      #${TOAST_ID}[data-stage="collect"] { background: linear-gradient(180deg, #fbf1d8, #fffdf4); border-color: #ecd39a; color: #8a6412; }
+      #${TOAST_ID}[data-stage="collect"] .dmc-toast-mark {
+        box-sizing: border-box; background: transparent;
+        border: 2px solid #e0c07a; border-top-color: #d79a20;
+        animation: dmc-spin .8s linear infinite;
       }
+      #${TOAST_ID}[data-stage="resolved"] { background: linear-gradient(180deg, #fbf1d8, #fffdf4); border-color: #ecd39a; color: #8a6412; }
+      #${TOAST_ID}[data-stage="resolved"] .dmc-toast-mark { background: var(--gold-deep, #d79a20); color: #fffdf6; }
+      #${TOAST_ID}[data-stage="resolved"] .dmc-toast-mark::before { content: "✓"; }
+      #${TOAST_ID}[data-stage="loaded"] { background: linear-gradient(180deg, #e4f0d1, #f6fbee); border-color: #a9c982; color: #456c2b; }
+      #${TOAST_ID}[data-stage="loaded"] .dmc-toast-mark { background: #5d8a3a; color: #fffdf6; }
+      #${TOAST_ID}[data-stage="loaded"] .dmc-toast-mark::before { content: "✓"; }
       #${MATCH_CARD_ID} .dmc-spin, #${PICKER_ID} .dmp-spin {
         display: inline-block; width: 9px; height: 9px; margin-right: 6px;
         vertical-align: -1px; border: 1.5px solid #c3d3a6; border-top-color: #5d8a3a;
@@ -1702,7 +1717,7 @@
       #${MATCH_CARD_ID} .dmc-spin[hidden], #${PICKER_ID} .dmp-spin[hidden] { display: none; }
       @keyframes dmc-spin { to { transform: rotate(360deg); } }
       @media (prefers-reduced-motion: reduce) {
-        #${TOAST_ID} .dmc-toast-mark[data-stage="collect"]::before,
+        #${TOAST_ID} .dmc-toast-mark[data-stage="collect"],
         #${MATCH_CARD_ID} .dmc-spin, #${PICKER_ID} .dmp-spin { animation: none !important; }
       }
 
@@ -1817,18 +1832,20 @@
         gap: 10px;
         width: 100%;
         text-align: left;
-        border: 0;
-        border-left: 3px solid transparent;
+        border: 1px solid transparent;
+        border-radius: 8px;
         background: transparent;
         color: #3b4a2f;
         padding: 10px 14px;
+        margin: 2px 7px;
+        width: calc(100% - 14px);
         font-family: inherit;
         font-size: 12px;
         line-height: 1.4;
         cursor: pointer;
       }
-      #${PICKER_ID} .dmp-row:hover { background: #eaf2d9; border-left-color: #5d8a3a; }
-      #${PICKER_ID} .dmp-row.recommended { border-left-color: #e8ad35; background: #f6f9e9; }
+      #${PICKER_ID} .dmp-row:hover { background: #eaf2d9; border-color: #b7d08e; }
+      #${PICKER_ID} .dmp-row.recommended { border-color: #e0c07a; background: #fbf1d8; }
       #${PICKER_ID} .dmp-main { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       #${PICKER_ID} .dmp-meta {
         font: 9px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -1855,13 +1872,18 @@
       #${PICKER_ID} .dmp-status {
         flex: 1;
         font: 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
-        color: #8b9c76;
+        color: #456c2b;
+        padding: 6px 9px;
+        background: #e9f3d7;
+        border: 1px solid #b7d08e;
+        border-radius: 8px;
+        font-weight: 600;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
       }
-      #${PICKER_ID} .dmp-status.error { color: #b4653f; }
-      #${PICKER_ID} .dmp-status.busy { color: #5d8a3a; }
+      #${PICKER_ID} .dmp-status.error { background: #fbe9dd; border-color: #e4c3ad; color: #a15534; }
+      #${PICKER_ID} .dmp-status.busy { background: #fbf1d8; border-color: #ecd39a; color: #8a6412; }
       #${PICKER_ID} .dmp-back, #${PICKER_ID} .dmp-cancel {
         border: 1px solid #dce5c8;
         border-radius: 8px;
