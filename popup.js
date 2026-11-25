@@ -6,6 +6,58 @@ let saveTimer = null;
 
 const $ = (id) => document.getElementById(id);
 
+const VIDEO_EXT = /\.(mp4|mkv|avi|rmvb|rm|mov|webm|flv|ts|m4v|wmv|mpeg|mpg)$/i;
+
+function parseStructuredKeyword(text) {
+  let s = String(text || "").trim();
+  if (!s) return null;
+  s = s.replace(VIDEO_EXT, "").trim();
+  if (!s) return null;
+
+  let m = s.match(/^(.*?)[\s._-]*S(\d{1,2})[\s._-]*E(\d{1,4})(?:[\s._-].*)?$/i);
+  if (m && m[1].trim()) {
+    return { name: m[1].trim(), season: parseInt(m[2], 10), episode: parseInt(m[3], 10) };
+  }
+  m = s.match(/^(.*?)[\s._-]*第\s*0*(\d+)\s*[集话](?:[\s._-].*)?$/);
+  if (m && m[1].trim()) {
+    return { name: m[1].trim(), episode: parseInt(m[2], 10) };
+  }
+  m = s.match(/^(.*?)[\s._-]*EP\s*0*(\d{1,4})(?:[\s._-].*)?$/i);
+  if (m && m[1].trim()) {
+    return { name: m[1].trim(), episode: parseInt(m[2], 10) };
+  }
+  m = s.match(/^(.*?)[\s]*[|@#]\s*0*(\d{1,4})$/);
+  if (m && m[1].trim()) {
+    return { name: m[1].trim(), episode: parseInt(m[2], 10) };
+  }
+  return null;
+}
+
+async function autoResolveAndLoad(parsed) {
+  setMessage(`已识别《${parsed.name}》第 ${parsed.episode} 集，正在装填…`);
+  if (!(await requireContentScript())) return false;
+  const res = await chrome.runtime.sendMessage({
+    type: "AUTO_RESOLVE",
+    titles: [parsed.name],
+    episodeHint: parsed.episode,
+    videoKey: `popup::${parsed.name}::${parsed.episode}`
+  });
+  if (!res || !res.ok || !(res.comments || []).length) {
+    throw new Error((res && res.reason) || "未能按该集装填弹幕");
+  }
+  await chrome.tabs.sendMessage(tabId, {
+    type: "CONTENT_LOAD_DANMU",
+    comments: res.comments,
+    episode: res.episode
+  });
+  clearResults();
+  $("episode").textContent = res.episode || "-";
+  $("count").textContent = String(res.comments.length);
+  setMessage(`已按《${parsed.name}》第 ${parsed.episode} 集装填 ${res.comments.length} 条弹幕`, "success");
+  await refreshState();
+  return true;
+}
+
 function setTag(el, text, ok) {
   el.innerHTML = "";
   const tag = document.createElement("span");
@@ -108,6 +160,15 @@ async function doSearch() {
     setMessage("请先输入搜索关键字", "error");
     return;
   }
+  const parsed = parseStructuredKeyword(keyword);
+  if (parsed) {
+    try {
+      await autoResolveAndLoad(parsed);
+    } catch (e) {
+      setMessage(`按第 ${parsed.episode} 集装填失败：${e.message || e}`, "error");
+    }
+    return;
+  }
   setMessage("正在搜索作品…");
   clearResults();
   try {
@@ -172,6 +233,17 @@ async function autoMatch() {
         candidates.push(text);
       }
     }
+
+    for (const text of candidates) {
+      const parsed = parseStructuredKeyword(text);
+      if (!parsed) continue;
+      try {
+        if (await autoResolveAndLoad(parsed)) return;
+      } catch (e) {
+        console.info("[danmu] 结构化候选装填失败", e && e.message ? e.message : String(e));
+      }
+    }
+
     const list = $("keywordOptions");
     list.innerHTML = "";
     candidates.forEach((text) => {

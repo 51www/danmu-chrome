@@ -249,6 +249,33 @@ function cleanAnimeKeyword(title) {
     .trim();
 }
 
+const VIDEO_EXT = /\.(mp4|mkv|avi|rmvb|rm|mov|webm|flv|ts|m4v|wmv|mpeg|mpg)$/i;
+
+function parseStructuredKeyword(text) {
+  let s = String(text || "").trim();
+  if (!s) return null;
+  s = s.replace(VIDEO_EXT, "").trim();
+  if (!s) return null;
+
+  let m = s.match(/^(.*?)[\s._-]*S(\d{1,2})[\s._-]*E(\d{1,4})(?:[\s._-].*)?$/i);
+  if (m && m[1].trim()) {
+    return { name: m[1].trim(), season: parseInt(m[2], 10), episode: parseInt(m[3], 10) };
+  }
+  m = s.match(/^(.*?)[\s._-]*第\s*0*(\d+)\s*[集话](?:[\s._-].*)?$/);
+  if (m && m[1].trim()) {
+    return { name: m[1].trim(), episode: parseInt(m[2], 10) };
+  }
+  m = s.match(/^(.*?)[\s._-]*EP\s*0*(\d{1,4})(?:[\s._-].*)?$/i);
+  if (m && m[1].trim()) {
+    return { name: m[1].trim(), episode: parseInt(m[2], 10) };
+  }
+  m = s.match(/^(.*?)[\s]*[|@#]\s*0*(\d{1,4})$/);
+  if (m && m[1].trim()) {
+    return { name: m[1].trim(), episode: parseInt(m[2], 10) };
+  }
+  return null;
+}
+
 async function getComments(target = {}) {
   const path = target.id
     ? `/api/v2/comment/${encodeURIComponent(target.id)}?format=json`
@@ -303,7 +330,10 @@ async function resolveAutoDanmu(msg = {}, sender = {}) {
 }
 
 async function resolveByTitle(title, episodeHint) {
-  const animes = await searchAnime(title);
+  const parsed = parseStructuredKeyword(title);
+  const searchTitle = parsed ? parsed.name : title;
+  const hint = parsed && parsed.episode != null ? parsed.episode : episodeHint;
+  const animes = await searchAnime(searchTitle);
   if (!animes.length) return { ok: false, reason: "no-anime" };
   const anime = animes[0];
   const animeName = itemTitle(anime);
@@ -313,13 +343,16 @@ async function resolveByTitle(title, episodeHint) {
   });
   if (!episodes.length) return { ok: false, reason: "no-episode" };
 
-  const wanted = normalizeEpisodeHint(episodeHint, title);
+  const wanted = normalizeEpisodeHint(hint, searchTitle);
   let episode = null;
   let episodeFromHint = false;
   if (wanted != null) {
     episode = episodes.find(
       (e) => extractEpisodeNo(e.episodeTitle || e.title || e.name, true) === wanted
     );
+    if (!episode && wanted >= 1 && wanted <= episodes.length) {
+      episode = episodes[wanted - 1];
+    }
     if (episode) {
       episodeFromHint = true;
       console.info("[danmu] 集数匹配", {

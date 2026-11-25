@@ -75,7 +75,7 @@
     const res = await chrome.runtime.sendMessage({ type: "GET_CONFIG" });
     if (!res || !res.ok) return;
     config = res.config;
-    rule = findRule(location.href, config.rules) || manualRule();
+    rule = findRule(getPageUrl(), config.rules) || manualRule();
 
     injectStyle();
     watchVideo();
@@ -139,13 +139,23 @@
         sendResponse({ ok: true });
       } else if (msg.type === "CONTENT_SET_RULES") {
         config.rules = Array.isArray(msg.rules) ? msg.rules : [];
-        rule = findRule(location.href, config.rules) || manualRule();
+        rule = findRule(getPageUrl(), config.rules) || manualRule();
         sendResponse({ ok: true, rule: rule.name });
       } else {
         sendResponse({ ok: false, error: "未知内容脚本消息" });
       }
       return true;
     });
+  }
+
+  function getPageUrl() {
+    try {
+      if (window.top !== window) {
+        const topHref = window.top.location.href;
+        if (topHref) return topHref;
+      }
+    } catch (e) {}
+    return location.href;
   }
 
   function manualRule() {
@@ -1294,6 +1304,33 @@
     return `${location.href}::${src}`;
   }
 
+  const VIDEO_EXT = /\.(mp4|mkv|avi|rmvb|rm|mov|webm|flv|ts|m4v|wmv|mpeg|mpg)$/i;
+
+  function parseStructuredKeyword(text) {
+    let s = String(text || "").trim();
+    if (!s) return null;
+    s = s.replace(VIDEO_EXT, "").trim();
+    if (!s) return null;
+
+    let m = s.match(/^(.*?)[\s._-]*S(\d{1,2})[\s._-]*E(\d{1,4})(?:[\s._-].*)?$/i);
+    if (m && m[1].trim()) {
+      return { name: m[1].trim(), season: parseInt(m[2], 10), episode: parseInt(m[3], 10) };
+    }
+    m = s.match(/^(.*?)[\s._-]*第\s*0*(\d+)\s*[集话](?:[\s._-].*)?$/);
+    if (m && m[1].trim()) {
+      return { name: m[1].trim(), episode: parseInt(m[2], 10) };
+    }
+    m = s.match(/^(.*?)[\s._-]*EP\s*0*(\d{1,4})(?:[\s._-].*)?$/i);
+    if (m && m[1].trim()) {
+      return { name: m[1].trim(), episode: parseInt(m[2], 10) };
+    }
+    m = s.match(/^(.*?)[\s]*[|@#]\s*0*(\d{1,4})$/);
+    if (m && m[1].trim()) {
+      return { name: m[1].trim(), episode: parseInt(m[2], 10) };
+    }
+    return null;
+  }
+
   function extractEpisodeNo(text, allowBareNumber = false) {
     const s = String(text || "").trim();
     let m = s.match(/第\s*0*(\d+)\s*[集话]/);
@@ -1380,6 +1417,28 @@
     autoNoticeShown = false;
     candidates = candidates.slice(0, 3);
     const episodeHint = autoInfo.episodeHint != null ? autoInfo.episodeHint : findEpisodeHint(candidates);
+
+    for (const title of candidates) {
+      const parsed = parseStructuredKeyword(title);
+      if (!parsed) continue;
+      try {
+        const res = await chrome.runtime.sendMessage({
+          type: "AUTO_RESOLVE",
+          titles: [parsed.name],
+          episodeHint: parsed.episode,
+          videoKey: `${key}::structured::${parsed.name}::${parsed.episode}`
+        });
+        if (res && res.ok && res.episodeFromHint && (res.comments || []).length) {
+          hideToast();
+          showToast(`已按《${parsed.name}》第 ${parsed.episode} 集装填 ${res.comments.length} 条弹幕`);
+          applyResolved(res, true);
+          return;
+        }
+      } catch (e) {
+        console.info("[danmu] 结构化标题装填失败", e && e.message ? e.message : String(e));
+      }
+    }
+
     console.info("[danmu] 标题匹配候选", {
       titles: candidates,
       episodeHint,
