@@ -478,7 +478,7 @@
         busy: false,
         error: false
       });
-      showToast(`已装填 ${loaded} 条弹幕`);
+      showToast(`已装填 ${loaded} 条弹幕`, { stage: "loaded" });
     } catch (e) {
       setWizard({
         status: `弹幕获取失败：${e.message || e}`,
@@ -686,7 +686,7 @@
           <button class="dmc-close" aria-label="关闭" style="display:grid;place-items:center;width:22px;height:22px;border:0;border-radius:50%;background:transparent;color:#8b9c76;font:16px/1 sans-serif;cursor:pointer;padding:0">×</button>
         </div>
         <div class="dmc-steps" style="display:flex;gap:0;padding:10px 13px 0"></div>
-        <div class="dmc-status" style="margin:9px 13px 2px;padding:8px 10px;background:#f1f6e4;border-left:2px solid #5d8a3a;border-radius:0 8px 8px 0;font:11px/1.5 ui-monospace,Menlo,monospace;color:#5c6b4d"></div>
+        <div class="dmc-status" style="margin:9px 13px 2px;padding:8px 10px;background:#f1f6e4;border-left:2px solid #5d8a3a;border-radius:0 8px 8px 0;font:11px/1.5 ui-monospace,Menlo,monospace;color:#5c6b4d"><span class="dmc-spin" hidden></span><span class="dmc-status-text"></span></div>
         <div class="dmc-list" style="padding:6px 7px;max-height:216px;overflow:auto"></div>
         <div class="dmc-foot" style="display:flex;gap:6px;padding:10px 13px;border-top:1px solid #dce5c8;background:rgba(246,249,233,.7)">
           <input class="dmc-input" placeholder="或手动输入标题" style="flex:1;min-width:0;background:#fffef8;border:1px solid #dce5c8;border-radius:8px;color:#3b4a2f;padding:7px 9px;font:12px sans-serif;outline:none" />
@@ -748,11 +748,14 @@
 
   function renderWizardStatus() {
     const el = matchCard.querySelector(".dmc-status");
-    el.textContent = wizard.status || "准备就绪";
+    const textEl = el.querySelector(".dmc-status-text");
+    const spin = el.querySelector(".dmc-spin");
+    textEl.textContent = wizard.status || "准备就绪";
+    spin.hidden = !wizard.busy;
     const color = wizard.error ? "#b4653f" : wizard.busy ? "#d79a20" : "#5d8a3a";
     el.style.borderLeftColor = color;
     el.style.color = wizard.error ? "#a15534" : "#5c6b4d";
-    el.textContent = `${wizard.busy ? "◌ " : wizard.error ? "! " : "· "}${el.textContent}`;
+    textEl.textContent = `${wizard.busy ? "" : wizard.error ? "! " : "· "}${textEl.textContent}`;
   }
 
   function renderWizardList(candidates) {
@@ -877,7 +880,17 @@
     const parent = document.fullscreenElement || document.documentElement;
     if (toast.parentElement !== parent) parent.appendChild(toast);
 
-    toast.textContent = text;
+    toast.textContent = "";
+    const body = document.createElement("span");
+    body.className = "dmc-toast-body";
+    const mark = document.createElement("span");
+    mark.className = "dmc-toast-mark";
+    mark.dataset.stage = options.stage || "info";
+    const label = document.createElement("span");
+    label.className = "dmc-toast-label";
+    label.textContent = text;
+    body.append(mark, label);
+    toast.appendChild(body);
     let action = toast.querySelector("button");
     if (options.actionText && typeof options.onAction === "function") {
       if (!action) {
@@ -930,7 +943,7 @@
       </div>
       <div class="dmp-list"></div>
       <div class="dmp-foot">
-        <span class="dmp-status"></span>
+        <span class="dmp-status"><span class="dmp-spin" hidden></span><span class="dmp-status-text"></span></span>
         <button class="dmp-back" type="button" hidden>返回</button>
         <button class="dmp-cancel" type="button">取消</button>
       </div>
@@ -1009,7 +1022,10 @@
       picker.step === "anime" ? "flex" : "none";
     pickerCard.querySelector(".dmp-back").hidden = picker.step !== "episode";
     const status = pickerCard.querySelector(".dmp-status");
-    status.textContent = `${picker.busy ? "◌ " : picker.error ? "! " : "· "}${picker.message}`;
+    const statusText = status.querySelector(".dmp-status-text");
+    const statusSpin = status.querySelector(".dmp-spin");
+    statusText.textContent = `${picker.busy ? "" : picker.error ? "! " : "· "}${picker.message}`;
+    statusSpin.hidden = !picker.busy;
     status.className = `dmp-status ${picker.busy ? "busy" : picker.error ? "error" : ""}`;
 
     const list = pickerCard.querySelector(".dmp-list");
@@ -1199,7 +1215,7 @@
         : "";
       applyResolved({ comments: loaded, episode: label, anime: animeName }, false);
       closePicker();
-      showToast(`已装填 ${loaded.length} 条弹幕 · ${label}`, { duration: 3000 });
+      showToast(`已装填 ${loaded.length} 条弹幕 · ${label}`, { duration: 3000, stage: "loaded" });
     } catch (e) {
       setPicker({ busy: false, error: true, message: `弹幕获取失败：${e.message || e}` });
     }
@@ -1430,7 +1446,9 @@
         });
         if (res && res.ok && res.episodeFromHint && (res.comments || []).length) {
           hideToast();
-          showToast(`已按《${parsed.name}》第 ${parsed.episode} 集装填 ${res.comments.length} 条弹幕`);
+          showToast(`已按《${parsed.name}》第 ${parsed.episode} 集装填 ${res.comments.length} 条弹幕`, {
+            stage: "loaded"
+          });
           applyResolved(res, true);
           return;
         }
@@ -1444,7 +1462,10 @@
       episodeHint,
       activeEpisode: autoInfo.episodeHint
     });
-    showToast(`正在匹配《${candidates[0] || "当前视频"}》的弹幕…`, { persistent: true });
+    showToast(`正在匹配《${candidates[0] || "当前视频"}》的弹幕…`, {
+      persistent: true,
+      stage: "collect"
+    });
 
     let matched = null;
     for (const title of candidates) {
@@ -1485,7 +1506,8 @@
 
     if (episodeHint != null) {
       showToast(`已确定《${matched.title}》第 ${episodeHint} 集，正在装填弹幕…`, {
-        persistent: true
+        persistent: true,
+        stage: "resolved"
       });
       let res = null;
       try {
@@ -1501,7 +1523,8 @@
       if (res && res.ok && res.episodeFromHint && (res.comments || []).length) {
         hideToast();
         showToast(`已按第 ${episodeHint} 集自动装填 ${res.comments.length} 条弹幕`, {
-          duration: 2600
+          duration: 2600,
+          stage: "loaded"
         });
         applyResolved(res, true);
         return;
@@ -1660,6 +1683,28 @@
         pointer-events: auto;
       }
       #${TOAST_ID}:not(.show) .dmc-toast-action { pointer-events: none; }
+      #${TOAST_ID} .dmc-toast-body { display: inline-flex; align-items: center; gap: 7px; }
+      #${TOAST_ID} .dmc-toast-mark { flex: none; width: 11px; height: 11px; display: grid; place-items: center; }
+      #${TOAST_ID} .dmc-toast-mark[data-stage="collect"]::before {
+        content: ""; width: 9px; height: 9px;
+        border: 1.5px solid #d9c9a2; border-top-color: #d79a20;
+        border-radius: 50%; animation: dmc-spin .8s linear infinite;
+      }
+      #${TOAST_ID} .dmc-toast-mark[data-stage="resolved"]::before,
+      #${TOAST_ID} .dmc-toast-mark[data-stage="loaded"]::before {
+        content: "✓"; font: 700 11px/1 sans-serif; color: #5d8a3a;
+      }
+      #${MATCH_CARD_ID} .dmc-spin, #${PICKER_ID} .dmp-spin {
+        display: inline-block; width: 9px; height: 9px; margin-right: 6px;
+        vertical-align: -1px; border: 1.5px solid #c3d3a6; border-top-color: #5d8a3a;
+        border-radius: 50%; animation: dmc-spin .7s linear infinite;
+      }
+      #${MATCH_CARD_ID} .dmc-spin[hidden], #${PICKER_ID} .dmp-spin[hidden] { display: none; }
+      @keyframes dmc-spin { to { transform: rotate(360deg); } }
+      @media (prefers-reduced-motion: reduce) {
+        #${TOAST_ID} .dmc-toast-mark[data-stage="collect"]::before,
+        #${MATCH_CARD_ID} .dmc-spin, #${PICKER_ID} .dmp-spin { animation: none !important; }
+      }
 
       #${PICKER_ID} {
         position: fixed;

@@ -222,6 +222,70 @@
         line-height: 1.6;
       }
 
+      /* 关键词流程轨道：采集 → 确定 → 装填。阶段切换只动 transform / opacity。 */
+      .flow {
+        margin-bottom: 12px;
+        padding: 10px 13px 9px;
+        background: linear-gradient(180deg, #f6f9e9, var(--panel));
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        box-shadow: 0 4px 14px rgba(69, 108, 43, 0.05);
+      }
+      .flow__steps { position: relative; display: flex; justify-content: space-between; }
+      .flow__rail {
+        position: absolute; left: 8px; right: 8px; top: 7px;
+        height: 2px; background: var(--line); border-radius: 999px; overflow: hidden;
+      }
+      .flow__progress {
+        display: block; width: 100%; height: 100%;
+        background: linear-gradient(90deg, var(--accent), var(--gold));
+        transform: scaleX(0); transform-origin: left center;
+        transition: transform 300ms cubic-bezier(.22, .7, .24, 1);
+      }
+      .flow[data-stage="resolved"] .flow__progress { transform: scaleX(.5); }
+      .flow[data-stage="loaded"] .flow__progress { transform: scaleX(1); }
+      .flow__step {
+        position: relative; z-index: 1;
+        flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px;
+      }
+      .flow__step:first-of-type { align-items: flex-start; }
+      .flow__step:last-of-type { align-items: flex-end; }
+      .flow__dot {
+        position: relative; width: 16px; height: 16px; border-radius: 50%;
+        background: var(--panel); border: 2px solid var(--line);
+        display: grid; place-items: center;
+        transition: background 180ms ease, border-color 180ms ease;
+      }
+      .flow__pulse, .flow__check {
+        position: absolute; display: block; opacity: 0;
+        transition: opacity 160ms ease, transform 200ms cubic-bezier(.34, 1.56, .64, 1);
+      }
+      .flow__pulse { inset: -2px; border: 2px solid var(--accent); border-radius: 50%; }
+      .flow__check {
+        width: 8px; height: 5px; margin-top: -2px;
+        border-left: 2px solid #fffdf6; border-bottom: 2px solid #fffdf6;
+        transform: rotate(-45deg) scale(.3);
+      }
+      .flow__step--active .flow__dot { background: var(--accent-soft); border-color: var(--accent); }
+      .flow__step--active .flow__pulse { opacity: 1; animation: flow-pulse 1.5s ease-out infinite; }
+      .flow__step--done .flow__dot { background: var(--accent); border-color: var(--accent); }
+      .flow__step--done .flow__check { opacity: 1; transform: rotate(-45deg) scale(1); }
+      .flow[data-stage="resolved"] .flow__step--active .flow__dot { background: #fbf1d8; border-color: var(--gold-deep); }
+      .flow[data-stage="resolved"] .flow__step--active .flow__pulse { border-color: var(--gold-deep); }
+      .flow__label { font: 10px var(--mono); letter-spacing: .04em; color: var(--muted); }
+      .flow__step--active .flow__label { color: var(--accent-deep); font-weight: 600; }
+      .flow__step--done .flow__label { color: var(--accent); }
+      .flow__detail { margin-top: 8px; min-height: 15px; font: 10px/1.5 var(--mono); color: var(--muted); }
+      .flow[data-stage="loaded"] .flow__detail { color: var(--accent-deep); }
+      @keyframes flow-pulse {
+        0% { transform: scale(.9); opacity: .85; }
+        100% { transform: scale(2.1); opacity: 0; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .flow__pulse { animation: none !important; opacity: 0 !important; }
+        .flow__progress, .flow__dot, .flow__pulse, .flow__check { transition: none !important; }
+      }
+
       /* 设置视图：预览区保持深色模拟视频画面，控件沿用奶油绿主色。 */
       .preview-stage {
         background: var(--stage);
@@ -341,6 +405,25 @@
         <div class="row"><span class="label">装填进度</span><span class="value" id="wizardState">-</span></div>
         <div class="row"><span class="label">弹幕条数</span><span class="value" id="count">0</span></div>
         <div class="row"><span class="label">装填方式</span><span class="value" id="matchSource">-</span></div>
+      </div>
+
+      <div class="flow" id="flow" data-stage="idle" role="status" aria-live="polite">
+        <div class="flow__steps">
+          <div class="flow__rail"><span class="flow__progress"></span></div>
+          <span class="flow__step" id="flowStep1">
+            <span class="flow__dot"><i class="flow__pulse"></i><i class="flow__check"></i></span>
+            <span class="flow__label">采集</span>
+          </span>
+          <span class="flow__step" id="flowStep2">
+            <span class="flow__dot"><i class="flow__pulse"></i><i class="flow__check"></i></span>
+            <span class="flow__label">确定</span>
+          </span>
+          <span class="flow__step" id="flowStep3">
+            <span class="flow__dot"><i class="flow__pulse"></i><i class="flow__check"></i></span>
+            <span class="flow__label">装填</span>
+          </span>
+        </div>
+        <div class="flow__detail" id="flowDetail">等待匹配</div>
       </div>
 
       <label for="keyword">弹幕搜索关键字</label>

@@ -34,8 +34,13 @@ function parseStructuredKeyword(text) {
 }
 
 async function autoResolveAndLoad(parsed) {
-  setMessage(`已识别《${parsed.name}》第 ${parsed.episode} 集，正在装填…`);
-  if (!(await requireContentScript())) return false;
+  const loadingText = `已识别《${parsed.name}》第 ${parsed.episode} 集，正在装填…`;
+  setMessage(loadingText);
+  setFlowStage("collect", loadingText);
+  if (!(await requireContentScript())) {
+    setFlowStage("idle", "无法注入弹幕层");
+    return false;
+  }
   const res = await chrome.runtime.sendMessage({
     type: "AUTO_RESOLVE",
     titles: [parsed.name],
@@ -54,6 +59,7 @@ async function autoResolveAndLoad(parsed) {
   $("episode").textContent = res.episode || "-";
   $("count").textContent = String(res.comments.length);
   setMessage(`已按《${parsed.name}》第 ${parsed.episode} 集装填 ${res.comments.length} 条弹幕`, "success");
+  setFlowStage("loaded", `已按第 ${parsed.episode} 集装填 ${res.comments.length} 条弹幕`);
   await refreshState();
   return true;
 }
@@ -65,6 +71,28 @@ function setTag(el, text, ok) {
   tag.className = `tag ${variant}`.trim();
   tag.textContent = text;
   el.appendChild(tag);
+}
+
+const FLOW_STAGE = {
+  idle: { done: 0, active: -1 },
+  collect: { done: 0, active: 0 },
+  resolved: { done: 1, active: 1 },
+  loaded: { done: 3, active: -1 }
+};
+
+function setFlowStage(stage, detail) {
+  const flow = $("flow");
+  if (!flow) return;
+  const map = FLOW_STAGE[stage] || FLOW_STAGE.idle;
+  flow.dataset.stage = stage;
+  for (let i = 1; i <= 3; i++) {
+    const step = $(`flowStep${i}`);
+    if (!step) continue;
+    step.classList.toggle("flow__step--done", i - 1 < map.done);
+    step.classList.toggle("flow__step--active", i - 1 === map.active);
+  }
+  const detailEl = $("flowDetail");
+  if (detailEl) detailEl.textContent = detail || "";
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
@@ -126,6 +154,9 @@ async function refreshState() {
         res.autoMatched ? `已自动匹配并加载 ${loaded} 条弹幕` : `已加载 ${loaded} 条弹幕`,
         "success"
       );
+      setFlowStage("loaded", `已装填 ${loaded} 条弹幕`);
+    } else if ($("flow") && $("flow").dataset.stage === "loaded") {
+      setFlowStage("idle", "等待匹配");
     }
     const { config } = await chrome.runtime.sendMessage({ type: "GET_CONFIG" });
     const rule = (config.rules || []).find((r) => r.name === res.rule);
@@ -158,6 +189,7 @@ async function doSearch() {
   const keyword = $("keyword").value.trim();
   if (!keyword) {
     setMessage("请先输入搜索关键字", "error");
+    setFlowStage("idle", "等待输入关键词");
     return;
   }
   const parsed = parseStructuredKeyword(keyword);
@@ -166,10 +198,12 @@ async function doSearch() {
       await autoResolveAndLoad(parsed);
     } catch (e) {
       setMessage(`按第 ${parsed.episode} 集装填失败：${e.message || e}`, "error");
+      setFlowStage("idle", "按该集装填失败，可重试或手动选择");
     }
     return;
   }
   setMessage("正在搜索作品…");
+  setFlowStage("collect", "正在搜索作品…");
   clearResults();
   try {
     const res = await chrome.runtime.sendMessage({
@@ -179,14 +213,18 @@ async function doSearch() {
     if (!res || !res.ok) throw new Error(res?.error || "搜索失败");
     renderGroup("选择作品", res.items, (item) => item.animeTitle || item.title || item.name, loadEpisodes);
     setMessage(`找到 ${res.items.length} 个作品`);
+    setFlowStage(res.items.length ? "resolved" : "idle",
+      res.items.length ? `找到 ${res.items.length} 个作品，请选择` : "没有找到作品，请换个关键词");
   } catch (e) {
     setMessage(e.message || String(e), "error");
+    setFlowStage("idle", "搜索失败，请重试");
   }
 }
 
 async function loadEpisodes(anime) {
   const animeName = anime.animeTitle || anime.title || anime.name || "";
   setMessage(`正在获取《${animeName}》剧集…`);
+  setFlowStage("collect", `正在获取《${animeName}》剧集…`);
   clearResults();
   try {
     const res = await chrome.runtime.sendMessage({
@@ -203,14 +241,21 @@ async function loadEpisodes(anime) {
       loadComments
     );
     setMessage(`找到 ${res.items.length} 集`);
+    setFlowStage(res.items.length ? "resolved" : "idle",
+      res.items.length ? `找到 ${res.items.length} 集，请选择` : "该剧集暂无可装填内容");
   } catch (e) {
     setMessage(e.message || String(e), "error");
+    setFlowStage("idle", "剧集获取失败，请重试");
   }
 }
 
 async function autoMatch() {
-  if (!(await requireContentScript())) return;
+  if (!(await requireContentScript())) {
+    setFlowStage("idle", "无法注入弹幕层");
+    return;
+  }
   setMessage("正在按站点标题规则匹配关键词…");
+  setFlowStage("collect", "正在采集页面标题关键词…");
   try {
     let frames = [];
     try {
@@ -253,13 +298,16 @@ async function autoMatch() {
     });
     if (!candidates.length) {
       setMessage("未能按规则定位到标题，请手动输入关键词后点「搜索」。", "error");
+      setFlowStage("idle", "未采集到关键词");
       return;
     }
     $("keyword").value = candidates[0];
     await refreshState();
     setMessage(`已找到 ${candidates.length} 个候选关键词，可下拉选择；点「搜索」加载弹幕。`, "success");
+    setFlowStage("resolved", `已采集 ${candidates.length} 个候选关键词`);
   } catch (e) {
     setMessage(`自动匹配失败：${e.message || String(e)}`, "error");
+    setFlowStage("idle", "自动匹配失败，请重试");
   }
 }
 
@@ -302,8 +350,13 @@ async function requireContentScript() {
 
 async function loadComments(episode) {
   setMessage("正在准备弹幕层…");
-  if (!(await requireContentScript())) return;
+  setFlowStage("collect", "正在准备弹幕层…");
+  if (!(await requireContentScript())) {
+    setFlowStage("idle", "无法注入弹幕层");
+    return;
+  }
   setMessage("正在获取弹幕…");
+  setFlowStage("collect", "正在获取弹幕…");
   const target = { id: episode.episodeId || episode.commentId || episode.id, url: episode.url };
   try {
     const res = await chrome.runtime.sendMessage({ type: "API_GET_COMMENTS", ...target });
@@ -316,12 +369,14 @@ async function loadComments(episode) {
     });
     if (!send || !send.ok) throw new Error("弹幕层未就绪，请重试");
     setMessage(`已加载 ${res.comments.length} 条弹幕：${episodeLabel}`, "success");
+    setFlowStage("loaded", `已装填 ${res.comments.length} 条弹幕`);
     state = state || {};
     state.loaded = res.comments.length;
     $("count").textContent = String(res.comments.length);
     $("episode").textContent = episodeLabel || "-";
   } catch (e) {
     setMessage(e.message || String(e), "error");
+    setFlowStage("idle", "弹幕加载失败，请重试");
   }
 }
 
@@ -332,8 +387,10 @@ async function clearDanmu() {
     $("count").textContent = "0";
     $("episode").textContent = "-";
     setMessage("已清除弹幕", "success");
+    setFlowStage("idle", "已清除弹幕");
   } catch (e) {
     setMessage("清除失败，请重试", "error");
+    setFlowStage("idle", "清除失败，请重试");
   }
 }
 
