@@ -131,6 +131,14 @@
       } else if (msg.type === "CONTENT_CLEAR_DANMU") {
         clearDanmu();
         sendResponse({ ok: true });
+      } else if (msg.type === "CONTENT_EXPORT_DANMU") {
+        sendResponse({
+          ok: true,
+          comments: comments.slice().sort((a, b) => a.time - b.time),
+          episode: currentEpisode,
+          title: getTitle(),
+          url: location.href
+        });
       } else if (msg.type === "CONTENT_SET_STYLE") {
         config.style = { ...config.style, ...msg.style };
         applyStyle();

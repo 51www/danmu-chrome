@@ -104,6 +104,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (e.key === "Enter") doSearch();
   });
   $("clearBtn").addEventListener("click", clearDanmu);
+  $("exportAssBtn").addEventListener("click", exportAss);
   $("autoMatchBtn").addEventListener("click", autoMatch);
   $("addCurrentSite").addEventListener("click", addCurrentSite);
   bindSettings();
@@ -392,6 +393,68 @@ async function clearDanmu() {
     setMessage("清除失败，请重试", "error");
     setFlowStage("idle", "清除失败，请重试");
   }
+}
+
+async function exportAss() {
+  if (typeof buildAssDanmu !== "function") {
+    setMessage("导出模块未加载，请重新打开扩展后重试", "error");
+    return;
+  }
+
+  let res;
+  try {
+    res = await chrome.tabs.sendMessage(tabId, { type: "CONTENT_EXPORT_DANMU" });
+  } catch (e) {
+    res = null;
+  }
+  if (!res || !res.ok) {
+    setMessage("请先在当前页面装填弹幕，再导出 ASS 文件", "error");
+    return;
+  }
+
+  const comments = res.comments || [];
+  if (!comments.length) {
+    setMessage("当前没有可导出的弹幕，请先装填弹幕", "error");
+    return;
+  }
+
+  let style = popupConfig && popupConfig.style;
+  try {
+    const configRes = await chrome.runtime.sendMessage({ type: "GET_CONFIG" });
+    if (configRes && configRes.ok) style = configRes.config.style;
+  } catch (e) {}
+
+  const ass = buildAssDanmu({
+    comments,
+    style,
+    title: res.title,
+    episode: res.episode
+  });
+  downloadText(ass, assFileName(res.title, res.episode));
+  setMessage(`已导出 ${comments.length} 条弹幕为 ASS 文件`, "success");
+}
+
+function downloadText(text, filename) {
+  const blob = new Blob(["\uFEFF", text], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function assFileName(title, episode) {
+  const clean = (value) => String(value || "")
+    .replace(/[\r\n]+/g, " ")
+    .replace(/[\\/:*?"<>|]/g, "_")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 60);
+  const parts = ["弹幕", clean(title) || "danmu", clean(episode)].filter(Boolean);
+  return `${parts.join("_")}.ass`;
 }
 
 async function addCurrentSite() {
