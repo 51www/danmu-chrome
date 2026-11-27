@@ -53,7 +53,8 @@ async function autoResolveAndLoad(parsed) {
   await chrome.tabs.sendMessage(tabId, {
     type: "CONTENT_LOAD_DANMU",
     comments: res.comments,
-    episode: res.episode
+    episode: res.episode,
+    anime: res.anime || parsed.name
   });
   clearResults();
   $("episode").textContent = res.episode || "-";
@@ -366,7 +367,8 @@ async function loadComments(episode) {
     const send = await chrome.tabs.sendMessage(tabId, {
       type: "CONTENT_LOAD_DANMU",
       comments: res.comments,
-      episode: episodeLabel
+      episode: episodeLabel,
+      anime: episode.animeTitle || ""
     });
     if (!send || !send.ok) throw new Error("弹幕层未就绪，请重试");
     setMessage(`已加载 ${res.comments.length} 条弹幕：${episodeLabel}`, "success");

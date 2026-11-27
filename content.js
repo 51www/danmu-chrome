@@ -65,11 +65,17 @@
   let loadedSignature = "";
   let loadedSrc = "";
   let loadedDuration = 0;
+  let observedEpisodeNo = null;
   let lastLoadedPath = location.pathname;
   let episodeWatchdog = 0;
   let episodeReloadTimer = 0;
   let autoLoading = false;
   let autoLoadQueued = false;
+  let watchTickTimer = 0;
+  let lastEpCheckAt = 0;
+  let switchStartedAt = 0;
+  let endedPending = false;
+  let lastResolvedAnime = "";
   const boundVideos = new WeakSet();
 
   const active = [];
@@ -139,6 +145,10 @@
         autoMatched = false;
         loadComments(msg.comments || []);
         currentEpisode = msg.episode || "";
+        if (msg.anime) {
+          matchedKeyword = msg.anime;
+          lastResolvedAnime = msg.anime;
+        }
         sendResponse({ ok: true, count: comments.length });
       } else if (msg.type === "CONTENT_CLEAR_DANMU") {
         clearDanmu();
@@ -504,6 +514,16 @@
       currentEpisode = label;
       matchState = "done";
       autoMatched = false;
+      {
+        const animeName =
+          (wizard.anime &&
+            (wizard.anime.animeTitle || wizard.anime.title || wizard.anime.name || wizard.anime.anime)) ||
+          "";
+        if (animeName) {
+          matchedKeyword = animeName;
+          lastResolvedAnime = animeName;
+        }
+      }
       setWizard({
         status: `已装填 ${loaded} 条弹幕 · ${label}`,
         busy: false,
@@ -583,6 +603,14 @@
       if (e.key === "Escape" && wizardOpen) {
         e.stopPropagation();
         closeMatchCard(true);
+      }
+    }, true);
+    document.addEventListener("play", (e) => {
+      // 页面切到另一个 video 元素（换集重建播放器时常见），立刻接管
+      const el = e.target;
+      if (el && el.tagName === "VIDEO" && el !== video && el.isConnected) {
+        video = el;
+        onVideoReady();
       }
     }, true);
     document.addEventListener("pointerdown", (e) => {
@@ -1280,26 +1308,46 @@
   }
 
   function findVideo(root = document) {
-    const direct = root.querySelector("video");
-    if (direct) return direct;
-
-    for (const el of root.querySelectorAll("*")) {
-      if (!el.shadowRoot) continue;
-      const found = findVideo(el.shadowRoot);
-      if (found) return found;
-    }
-
+    // 页面上可能有多个 video（预览图、广告、隐藏残留），挑“真正正在播放/最接近播放”的那个
+    let best = null;
+    let bestScore = -1;
+    const consider = (el) => {
+      if (!el || el.nodeType !== 1) return;
+      const score = scoreVideo(el);
+      if (score > bestScore) {
+        bestScore = score;
+        best = el;
+      }
+    };
+    const scan = (node) => {
+      node.querySelectorAll("video").forEach(consider);
+      for (const el of node.querySelectorAll("*")) {
+        if (el.shadowRoot) scan(el.shadowRoot);
+      }
+    };
+    scan(root);
     if (root === document) {
       for (const iframe of document.querySelectorAll("iframe")) {
         try {
           const doc = iframe.contentDocument;
           if (!doc) continue;
-          const found = findVideo(doc);
-          if (found) return found;
+          scan(doc);
         } catch (e) {}
       }
     }
-    return null;
+    return best;
+  }
+
+  function scoreVideo(el) {
+    let score = 0;
+    try {
+      if (!el.paused && !el.ended) score += 100;
+      if (el.currentTime > 1) score += 50;
+      if (el.readyState > 0) score += 10;
+      const r = el.getBoundingClientRect();
+      score += Math.min(40, (r.width * r.height) / 20000);
+    } catch (e) {}
+    return score;
   }
 
   function watchVideo() {
@@ -1359,6 +1407,26 @@
     boundVideos.add(video);
     video.addEventListener("seeked", resetDanmu);
     video.addEventListener("emptied", onVideoEmptied);
+    // MSE/hls.js 换集常不改 src，只发这些事件；借机复查是否换集
+    for (const type of ["loadstart", "loadedmetadata", "durationchange", "ended"]) {
+      video.addEventListener(type, scheduleWatchTick);
+    }
+    video.addEventListener("ended", () => {
+      endedPending = true;
+    });
+    video.addEventListener("play", () => {
+      scheduleWatchTick();
+    });
+  }
+
+  function scheduleWatchTick() {
+    if (watchTickTimer) return;
+    watchTickTimer = setTimeout(() => {
+      watchTickTimer = 0;
+      try {
+        episodeWatchTick();
+      } catch (e) {}
+    }, 250);
   }
 
   function onVideoEmptied() {
@@ -1387,6 +1455,8 @@
     loadedSrc = currentVideoSrc();
     lastLoadedPath = location.pathname;
     loadedDuration = videoDuration();
+    observedEpisodeNo = detectActiveEpisode();
+    endedPending = false;
   }
 
   function videoDuration() {
@@ -1394,40 +1464,45 @@
     return d > 0 ? d : 0;
   }
 
+  let idleTicks = 0;
+
   function startEpisodeWatchdog() {
     if (episodeWatchdog) return;
-    let idleTicks = 0;
     episodeWatchdog = setInterval(() => {
       try {
-        if (!video || !video.isConnected) {
-          // 播放器可能被整块替换，低频兜底再找一次（正常由 MutationObserver 负责）
-          if (++idleTicks % 5 !== 0) return;
-          const found = findVideo();
-          if (!found) return;
-          if (found !== video) {
-            video = found;
-            onVideoReady();
-          }
-          return;
-        }
-        idleTicks = 0;
-        const sig = getSourceSignature();
-        if (!observedSignature) {
-          observedSignature = sig;
-          return;
-        }
-        if (sig === observedSignature) {
-          checkDurationShift();
-          return;
-        }
-        observedSignature = sig;
-        handleSourceChanged();
+        episodeWatchTick();
       } catch (e) {}
     }, 700);
   }
 
+  function episodeWatchTick() {
+    if (!video || !video.isConnected) {
+      // 播放器可能被整块替换，低频兜底再找一次（正常由 MutationObserver / play 事件负责）
+      if (++idleTicks % 5 !== 0) return;
+      const found = findVideo();
+      if (found && found !== video) {
+        video = found;
+        onVideoReady();
+      }
+      return;
+    }
+    idleTicks = 0;
+    const sig = getSourceSignature();
+    if (!observedSignature) {
+      observedSignature = sig;
+      return;
+    }
+    if (sig !== observedSignature) {
+      observedSignature = sig;
+      handleSourceChanged();
+      return;
+    }
+    checkDurationShift();
+    checkEpisodeLabelChange();
+  }
+
   function checkDurationShift() {
-    // 部分播放器换集时复用同一个 blob 源（hls.js），URL 与 src 都不变，
+    // 部分播放器换集时复用同一个 blob 源（hls.js/MSE），URL 与 src 都不变，
     // 只能通过总时长突变判断片源已切换。
     if (!loadedSignature || !video || video.readyState < 1) return;
     const d = videoDuration();
@@ -1436,11 +1511,25 @@
       loadedDuration = d;
       return;
     }
-    if (Math.abs(d - loadedDuration) < 5 || Math.abs(d - loadedDuration) / loadedDuration < 0.05) {
-      return;
-    }
+    const diff = Math.abs(d - loadedDuration);
+    if (diff < 3 && diff / loadedDuration < 0.02) return;
     loadedDuration = d;
     handleSourceChanged();
+  }
+
+  function checkEpisodeLabelChange() {
+    // 页面“当前集”标识变化是换集的强信号（夸克网盘等站点换集不改 src）
+    const now = Date.now();
+    if (now - lastEpCheckAt < 2000) return;
+    lastEpCheckAt = now;
+    const ep = detectActiveEpisode();
+    if (ep == null) return;
+    if (observedEpisodeNo != null && ep !== observedEpisodeNo) {
+      observedEpisodeNo = ep;
+      handleSourceChanged();
+      return;
+    }
+    observedEpisodeNo = ep;
   }
 
   function handleSourceChanged() {
@@ -1451,21 +1540,28 @@
       // SPA 内跳转了页面：规则要重新判定；标题与已匹配作品不符时说明换了片
       lastLoadedPath = location.pathname;
       rule = findRule(getPageUrl(), config.rules) || manualRule();
-      if (matchedKeyword && !isSameShow(getTitle(), matchedKeyword)) {
+      const known = matchedKeyword || lastResolvedAnime || "";
+      if (known && !isSameShow(getTitle(), known)) {
         matchState = "idle";
         matchedKeyword = "";
+        lastResolvedAnime = "";
       }
     }
     if (!loadedSignature) {
       // 尚未成功装填过弹幕，当作首次装填再试一次
-      if (autoEnabled) tryAutoLoad();
+      if (autoEnabled) {
+        tryAutoLoad();
+      } else if (matchedKeyword || lastResolvedAnime) {
+        autoResolveNextEpisode(null);
+      }
       return;
     }
-    if (!currentVideoSrc()) {
-      // 新源还没确定，等播放器真正挂上地址后再判定
+    const srcNow = currentVideoSrc();
+    if (loadedSrc && !srcNow) {
+      // 旧源被临时摘除，等新源挂上再判定
       return;
     }
-    if (!loadedSrc) {
+    if (!loadedSrc && srcNow) {
       // 装填时播放器还没有源，本次只是源就绪，不算换集
       rememberLoadedSource();
       return;
@@ -1474,6 +1570,10 @@
   }
 
   function handleEpisodeSwitch(prevEpisodeNo, autoEnabled) {
+    const now = Date.now();
+    // 多个换集信号（src/时长/集数标识/ended 续播）可能同时触发，做一次防抖
+    if (now - switchStartedAt < 2500) return;
+    switchStartedAt = now;
     clearActive();
     comments = [];
     currentEpisode = "";
@@ -1486,18 +1586,19 @@
     loadedSrc = "";
     notifyWizardState();
 
-    if (!autoEnabled) {
-      matchState = "idle";
-      const title = getTitle();
-      showToast("检测到剧集切换，点此重新匹配弹幕", {
-        actionText: "重新匹配",
-        onAction: () => openPicker({ title, keyword: title, animes: [], episodeHint: prevEpisodeNo })
-      });
+    const knownAnime = matchedKeyword || lastResolvedAnime || "";
+    if (autoEnabled || knownAnime) {
+      showToast("检测到剧集切换，正在获取新弹幕…", { persistent: true, stage: "collect" });
+      scheduleEpisodeReload(prevEpisodeNo, 0);
       return;
     }
 
-    showToast("检测到剧集切换，正在获取新弹幕…", { persistent: true, stage: "collect" });
-    scheduleEpisodeReload(prevEpisodeNo, 0);
+    matchState = "idle";
+    const title = getTitle();
+    showToast("检测到剧集切换，点此重新匹配弹幕", {
+      actionText: "重新匹配",
+      onAction: () => openPicker({ title, keyword: title, animes: [], episodeHint: prevEpisodeNo })
+    });
   }
 
   function isSameShow(pageTitle, keyword) {
@@ -1515,12 +1616,8 @@
   function scheduleEpisodeReload(prevEpisodeNo, attempt) {
     clearTimeout(episodeReloadTimer);
     const delay = attempt ? 600 : 500;
-    episodeReloadTimer = setTimeout(() => {
+    episodeReloadTimer = setTimeout(async () => {
       if (!video || !video.isConnected) return;
-      if (!rule || !rule.autoLoad) {
-        hideToast();
-        return;
-      }
       // 等页面把新一集的 DOM 标识渲染完成再装填，避免拉回上一集的弹幕
       const ep = detectActiveEpisode();
       const stale = prevEpisodeNo != null && ep != null && ep === prevEpisodeNo;
@@ -1530,8 +1627,58 @@
       }
       autoAttemptKey = "";
       autoNoticeShown = false;
-      tryAutoLoad();
+      // 显式带上目标集数：DOM 已指向新的一集就用它；
+      // DOM 没更新（或仍停留在旧集）时，按“上一集 + 1”推断自动连播的目标集
+      const hint =
+        ep != null && ep !== prevEpisodeNo
+          ? ep
+          : prevEpisodeNo != null
+            ? prevEpisodeNo + 1
+            : ep;
+
+      if (rule && rule.autoLoad) {
+        tryAutoLoad(0, hint);
+        return;
+      }
+
+      // 手动模式：基于上次匹配到的作品，直接按新集续取
+      const ok = await autoResolveNextEpisode(hint);
+      if (!ok) {
+        matchState = "idle";
+        const title = getTitle();
+        showToast("检测到剧集切换，点此重新匹配弹幕", {
+          actionText: "重新匹配",
+          onAction: () => openPicker({ title, keyword: title, animes: [], episodeHint: hint })
+        });
+      }
     }, delay);
+  }
+
+  async function autoResolveNextEpisode(hint) {
+    const anime = matchedKeyword || lastResolvedAnime || "";
+    if (!anime) return false;
+    try {
+      const res = await chrome.runtime.sendMessage({
+        type: "AUTO_RESOLVE",
+        titles: [anime],
+        episodeHint: hint,
+        videoKey: `${getVideoKey()}::next::${anime}::${hint}`
+      });
+      // hint 存在时要求确实按集命中，避免误装回第一集
+      if (res && res.ok && (res.comments || []).length && (hint == null || res.episodeFromHint)) {
+        hideToast();
+        applyResolved(res, true);
+        const label = res.episode || (hint != null ? `第 ${hint} 集` : anime);
+        showToast(`已自动切换到 ${label}，装填 ${res.comments.length} 条弹幕`, {
+          duration: 3000,
+          stage: "loaded"
+        });
+        return true;
+      }
+    } catch (e) {
+      console.info("[danmu] 换集自动装填失败", e && e.message ? e.message : String(e));
+    }
+    return false;
   }
 
   function setupRectObserver() {
@@ -1590,7 +1737,12 @@
     const selectors = [
       "a.active", "a[class*='active' i]", "a.current", "a[class*='current' i]",
       "a[aria-current]", "a[class*='selected' i]", "a.on", "a[class*='playing' i]",
-      "li.active a", "li.current a", ".active > a", ".current > a", "[aria-current] > a"
+      "li.active a", "li.current a", ".active > a", ".current > a", "[aria-current] > a",
+      // 剧集列表常用非 <a> 元素（夸克网盘等）
+      "[class*='episode' i][class*='active' i]", "[class*='episode' i][class*='current' i]",
+      "[class*='ep-item' i][class*='active' i]", "[class*='ep-item' i][class*='current' i]",
+      "[class*='play-item' i][class*='active' i]", "[class*='play-item' i][class*='current' i]",
+      "[role='option'][aria-selected='true']", "[aria-checked='true']"
     ];
     for (const sel of selectors) {
       let nodes;
@@ -1643,14 +1795,14 @@
     return { titles: collectCandidates(), episodeHint: detectActiveEpisode() };
   }
 
-  async function tryAutoLoad(retry = 0) {
+  async function tryAutoLoad(retry = 0, hint = null) {
     if (autoLoading) {
       // 上一次自动装填还在进行中（常见于刚换集），稍后补一次，避免新集被漏掉
       if (!autoLoadQueued) {
         autoLoadQueued = true;
         setTimeout(() => {
           autoLoadQueued = false;
-          tryAutoLoad(retry);
+          tryAutoLoad(retry, hint);
         }, 1000);
       }
       return;
@@ -1661,26 +1813,27 @@
     if (autoAttemptKey === key) return;
     autoLoading = true;
     try {
-      await runAutoLoad(retry, key);
+      await runAutoLoad(retry, key, hint);
     } finally {
       autoLoading = false;
     }
   }
 
-  async function runAutoLoad(retry, key) {
+  async function runAutoLoad(retry, key, hint) {
     const autoInfo = await collectAutoInfoAcrossFrames();
     let candidates = autoInfo.titles;
     if (matchedKeyword && !candidates.includes(matchedKeyword)) {
       candidates.unshift(matchedKeyword);
     }
     if (!candidates.length && retry < 6) {
-      setTimeout(() => tryAutoLoad(retry + 1), 700);
+      setTimeout(() => tryAutoLoad(retry + 1, hint), 700);
       return;
     }
     autoAttemptKey = key;
     autoNoticeShown = false;
     candidates = candidates.slice(0, 3);
-    const episodeHint = autoInfo.episodeHint != null ? autoInfo.episodeHint : findEpisodeHint(candidates);
+    const episodeHint =
+      hint != null ? hint : autoInfo.episodeHint != null ? autoInfo.episodeHint : findEpisodeHint(candidates);
 
     for (const title of candidates) {
       const parsed = parseStructuredKeyword(title);
@@ -1797,7 +1950,10 @@
     currentEpisode = res.episode || "";
     matchState = "done";
     autoMatched = auto;
-    if (res.anime) matchedKeyword = res.anime;
+    if (res.anime) {
+      matchedKeyword = res.anime;
+      lastResolvedAnime = res.anime;
+    }
     notifyWizardState();
   }
 
@@ -2333,6 +2489,7 @@
     updateMatchBtnRect();
     const fsEl = document.fullscreenElement || null;
     if (fsEl !== lastFullscreenEl) mountOverlay();
+    checkAutoNext();
     if (!comments.length || video.ended) return;
 
     const t = video.currentTime || 0;
@@ -2347,6 +2504,21 @@
       emitted++;
     }
     if (!video.paused) updateActive(t);
+  }
+
+  function checkAutoNext() {
+    // 自动连播下一集：ended 之后又从接近 0 的位置继续播放，即使 src 不变也视为换集
+    if (!endedPending) return;
+    if (video.ended) return;
+    const t = video.currentTime || 0;
+    if (t >= 4) {
+      endedPending = false;
+      return;
+    }
+    if (t > 0.2) {
+      endedPending = false;
+      handleSourceChanged();
+    }
   }
 
   function updateActive(t) {
