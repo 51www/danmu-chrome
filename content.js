@@ -321,6 +321,7 @@
       busy: false,
       error: false,
       keyword: "",
+      episodeHint: null,
       animes: [],
       episodes: [],
       anime: null
@@ -356,15 +357,25 @@
   async function chooseKeyword(text) {
     const keyword = cleanTitle(text);
     if (!keyword) return;
-    matchedKeyword = keyword;
-    notifyKeyword(keyword);
+    const parsed = parseStructuredKeyword(keyword);
+    const searchKeyword = parsed ? parsed.name : keyword;
+    if (parsed) {
+      matchedKeyword = parsed.name;
+      notifyKeyword(parsed.name);
+    } else {
+      matchedKeyword = keyword;
+      notifyKeyword(keyword);
+    }
     autoTried = false;
     setWizard({
       step: "anime",
-      status: `正在搜索《${keyword}》的作品…`,
+      status: parsed
+        ? `已识别《${parsed.name}》第 ${parsed.episode} 集，正在搜索作品…`
+        : `正在搜索《${keyword}》的作品…`,
       busy: true,
       error: false,
-      keyword,
+      keyword: searchKeyword,
+      episodeHint: parsed ? parsed.episode : null,
       animes: [],
       episodes: [],
       anime: null
@@ -372,7 +383,7 @@
     try {
       const res = await chrome.runtime.sendMessage({
         type: "API_SEARCH_ANIME",
-        keyword
+        keyword: searchKeyword
       });
       if (!res || !res.ok) throw new Error(res?.error || "作品搜索失败");
       const animes = res.items || [];
@@ -816,7 +827,11 @@
       }
       wizard.episodes.forEach((ep, i) => {
         const text = ep.episodeTitle || ep.title || ep.name || `第 ${i + 1} 集`;
-        list.appendChild(makeRow(text, i === 0, () => chooseEpisode(ep)));
+        const recommended =
+          wizard.episodeHint != null && extractEpisodeNo(text, true) === wizard.episodeHint;
+        list.appendChild(
+          makeRow(text, recommended || (wizard.episodeHint == null && i === 0), () => chooseEpisode(ep), recommended ? "当前" : "")
+        );
       });
       list.appendChild(makeRow("‹ 返回重新选择作品", false, backWizard));
     }
@@ -1119,16 +1134,19 @@
   async function pickerSearch(keyword) {
     const kw = cleanTitle(keyword);
     if (!kw) return;
+    const parsed = parseStructuredKeyword(kw);
+    const searchKw = parsed ? parsed.name : kw;
     setPicker({
-      keyword: kw,
+      keyword: searchKw,
+      episodeHint: parsed ? parsed.episode : picker.episodeHint,
       busy: true,
       error: false,
-      message: `正在搜索《${kw}》…`,
+      message: parsed ? `已识别第 ${parsed.episode} 集，正在搜索《${searchKw}》…` : `正在搜索《${kw}》…`,
       animes: [],
       episodes: []
     });
     try {
-      const res = await chrome.runtime.sendMessage({ type: "API_SEARCH_ANIME", keyword: kw });
+      const res = await chrome.runtime.sendMessage({ type: "API_SEARCH_ANIME", keyword: searchKw });
       if (!res || !res.ok) throw new Error(res?.error || "作品搜索失败");
       const animes = res.items || [];
       if (!animes.length) {
@@ -1593,22 +1611,26 @@
   async function quickRetry(keyword) {
     const kw = cleanTitle(keyword);
     if (!kw) return;
-    matchedKeyword = kw;
-    notifyKeyword(kw);
+    const parsed = parseStructuredKeyword(kw);
+    const searchKw = parsed ? parsed.name : kw;
+    const episodeHint = parsed ? parsed.episode : retryContext.episodeHint;
+    matchedKeyword = searchKw;
+    notifyKeyword(searchKw);
     setWizard({
       step: "keyword",
-      status: `正在按当前集重试《${kw}》…`,
+      status: `正在按第 ${episodeHint ?? "当前"} 集重试《${searchKw}》…`,
       busy: true,
       error: false,
-      keyword: kw
+      keyword: searchKw,
+      episodeHint
     });
-    console.info("[danmu] 改词重试关键词", { keyword: kw, episodeHint: retryContext.episodeHint });
+    console.info("[danmu] 改词重试关键词", { keyword: searchKw, episodeHint });
     try {
       const res = await chrome.runtime.sendMessage({
         type: "AUTO_RESOLVE",
-        titles: [kw],
-        episodeHint: retryContext.episodeHint,
-        videoKey: `${getVideoKey()}::retry::${kw}`
+        titles: [searchKw],
+        episodeHint,
+        videoKey: `${getVideoKey()}::retry::${searchKw}::${episodeHint}`
       });
       if (res && res.ok && (res.comments || []).length) {
         applyResolved(res, true);
